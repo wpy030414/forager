@@ -1,0 +1,39 @@
+name: forager
+
+services:
+  forager:
+    build:
+      context: .
+    image: xrl/forager:latest
+    container_name: forager
+    restart: unless-stopped
+    ports:
+      - "${PORT:-11408}:11408"
+    volumes:
+      - "${FORAGER_DATA:-./data}:/data"
+      # 想并入 Emby/Jellyfin 媒体库时再挂载；必须与 /data 同一文件系统才能硬链接
+      # - /volume1/media:/media
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      FORAGER_DOWNLOAD_CONCURRENCY: ${FORAGER_DOWNLOAD_CONCURRENCY:-1}
+      FORAGER_SUB_INITIAL: ${FORAGER_SUB_INITIAL:-3}
+      FORAGER_SUB_TICK: ${FORAGER_SUB_TICK:-30}
+      FORAGER_MIN_INTERVAL_MS: ${FORAGER_MIN_INTERVAL_MS:-400}
+      HANIME1_PROXY: ${HANIME1_PROXY:-}
+      HANIME1_DNS_PROXY: ${HANIME1_DNS_PROXY:-}
+      HANIME1_RESOLVE: ${HANIME1_RESOLVE:-}
+      HANIME1_COOKIE: ${HANIME1_COOKIE:-}
+      HANIME1_BASE_URL: ${HANIME1_BASE_URL:-https://hanime1.me}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:11408/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
