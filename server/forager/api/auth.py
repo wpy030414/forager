@@ -11,7 +11,7 @@ from typing import Any
 
 import segno
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -29,12 +29,14 @@ async def qrcode(request: Request, source_id: str) -> dict[str, Any]:
 
 
 @router.get("/{source_id}/qrcode/poll")
-async def poll(request: Request, source_id: str, key: str) -> dict[str, Any]:
+async def poll(request: Request, source_id: str, key: str, response: Response) -> dict[str, Any]:
     source = request.app.state.sources.get(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail=f"未注册的源：{source_id}")
 
     result = await source.qrcode_poll(key)
+    # 轮询结果绝不能进任何缓存，否则会一直看到第一次的 86101
+    response.headers["cache-control"] = "no-store, max-age=0"
     if result.get("cookie"):
         # 凭据只落库，绝不回传前端
         request.app.state.source_config.save(

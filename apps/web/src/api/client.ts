@@ -186,8 +186,16 @@ export const api = {
 
   // ---- 扫码登录 ----
   qrcode: (source: string) => get<QrCode>(`/api/auth/${source}/qrcode`),
-  pollQrcode: (source: string, key: string) =>
-    get<QrPoll>(`/api/auth/${source}/qrcode/poll?key=${encodeURIComponent(key)}`),
+  // 轮询必须绕开一切缓存：加时间戳 + no-store
+  pollQrcode: async (source: string, key: string): Promise<QrPoll> => {
+    const url = `/api/auth/${source}/qrcode/poll?key=${encodeURIComponent(key)}&t=${Date.now()}`
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      throw new ApiError(body.error ?? `请求失败（${res.status}）`, res.status)
+    }
+    return (await res.json()) as QrPoll
+  },
 
   // ---- 设置 ----
   settingsSources: () => get<SourceConfig[]>('/api/settings/sources'),

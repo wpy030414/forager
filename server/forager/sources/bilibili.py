@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import json
 import re
 import time
@@ -21,6 +22,8 @@ from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 from .base import BaseSource, SourceError
+
+log = logging.getLogger("forager.bilibili")
 
 API = "https://api.bilibili.com"
 PASSPORT = "https://passport.bilibili.com"
@@ -424,6 +427,7 @@ class BilibiliSource(BaseSource):
             f"{PASSPORT}/x/passport-login/web/qrcode/poll?qrcode_key={quote(key)}", 0
         )
         status = int(data.get("code") or 0)
+        log.info("[bilibili] 扫码状态 %s %s", status, data.get("message") or "")
         result: dict[str, Any] = {"status": status, "message": data.get("message") or ""}
         cookie = _cookie_from_login_url(data.get("url") or "") if status == 0 else ""
         if cookie:

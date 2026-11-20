@@ -8,7 +8,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @libre-tv/web build \
  && mkdir -p /out \
- && cp -a apps/server/dist/client/. /out/
+ && cp -a server/static/. /out/
 
 # ---------- 2) 运行镜像 ----------
 FROM python:3.13-slim AS runtime

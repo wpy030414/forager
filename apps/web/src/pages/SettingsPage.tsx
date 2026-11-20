@@ -237,10 +237,14 @@ function QrLogin({ source, onDone }: { source: string; onDone: () => void | Prom
           void onDone()
         } else if (r.status === 86090) {
           setPhase('scanned')
-          setMessage('已扫码，请在手机上确认')
+          setMessage('已扫码，请在手机上确认（86090）')
         } else if (r.status === 86038) {
           setPhase('expired')
-          setMessage('二维码已过期，请刷新')
+          setMessage('二维码已过期，请刷新（86038）')
+        } else if (r.status === 86101) {
+          setMessage('等待扫码（86101）')
+        } else {
+          setMessage(`状态 ${r.status}：${r.message || '未知'}`)
         }
       } catch {
         /* 轮询失败继续重试 */

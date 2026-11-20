@@ -1,56 +1,52 @@
-# ARCHITECTURE — libre-tv
+# ARCHITECTURE — forager
 
 ## 系统概述
-- 整体结构：
 
 ```
-                ┌──────────────────────────────────────────┐
-  电视/浏览器 →  │ apps/server (Hono :11408)                │
-                │  ├─ /api/*        源聚合 JSON API         │
-                │  ├─ /assets/*     生产模式托管前端产物     │
-                │  └─ dist/client/  (vp build 产出的 SPA)   │
-                │       ↑ 开发模式 Vite :5173 代理 /api      │
-                ├──────────────────────────────────────────┤
-                │ 源适配层（规划：apps/server/src/sources/） │
-                │   SourceAdapter: hanime1（首个）| …       │
-                ├──────────────────────────────────────────┤
-                │ SQLite (node:sqlite) + Drizzle rc（就绪） │
-                └───────────────┬──────────────────────────┘
-                                │ fetch + HTML 解析 / m3u8 代理
-                        各源站（hanime1.me …）
+浏览器 ──► FastAPI (:11408)
+            ├─ /                     SPA（构建产物 server/static）
+            ├─ /api/sources/*        源适配：列表/搜索/详情/流代理/图片代理
+            ├─ /api/library/*        本地库、下载队列、分面、播放解析
+            ├─ /api/tree/*           线索树（发现规则与进度）
+            ├─ /api/settings/*       凭据与网络参数（加密存储、热应用）
+            └─ /api/auth/*           扫码登录
+                    │
+        ┌───────────┴────────────┐
+        │ 后台任务（同进程）       │
+        │  Downloader：单队列      │
+        │  Scheduler：线索巡检     │
+        └───────────┬────────────┘
+                    │ curl 子进程（TLS 指纹可过 CF）
+                各源站 API / CDN
 ```
 
 ## 核心模块
+
 | 模块 | 职责 |
 |------|------|
-| `@libre-tv/web` | tvOS 风格 SPA：空间导航焦点、海报墙、搜索、详情、全屏播放器、本地库、hash 路由 |
-| `@libre-tv/server` | Hono 入口：`/api` 聚合路由、生产模式静态托管、源注册与流/图代理 |
-| `@libre-tv/shared` | 零构建契约包：SourceAdapter、VideoSummary/VideoDetail/Page、LibraryItem/DownloadJob/PlaybackResolve |
-| 源适配层 | `apps/server/src/sources/`：hanime1 adapter + 传输层（curl）+ DNS/CF 绕行策略 |
-| 本地库 | `apps/server/src/library/`：SQLite（node:sqlite）元数据/进度/设置 + 单并发下载队列 |
+| `transport/curl.py` | curl 子进程传输：非流式（HTML/JSON/图片）与流式（Range 透传） |
+| `transport/client.py` | 统一 UA/Referer/Cookie、每主机串行频控、HTML 短 TTL 缓存、DoH 解析 + `--resolve` |
+| `sources/base.py` | 源契约：list/search/detail/stream_url + 线索发现能力 + 配置字段声明 |
+| `sources/hanime1.py` | Blade SSR 页面解析（选择器表 + 卡片/详情） |
+| `sources/bilibili.py` | WBI 签名、buvid3 自取、dash 双轨、durl 直放、分区/UP主/收藏/关注、扫码登录 |
+| `library/downloader.py` | 单并发队列；dash 双轨 + ffmpeg remux；`.part` 原子落盘；元数据全量快照 |
+| `library/cache.py` | 元数据 7 天 + 直链单独判过期；封面按 URL 哈希落盘 |
+| `subs/scheduler.py` | 线索树：巡检、差集入队、收藏/关注展开子节点、进度统计 |
+| `source_config.py` + `secrets.py` | 配置读写、掩码、Fernet 加密、保存后热应用 |
+| `api/*` | 路由与统一错误出口（一律 `{"error": ...}`） |
 
-## 模块关系
-- web 只依赖 shared 的类型做编译期约束，运行时数据全部来自 server 的 `/api`。
-- server 持有 adapter 注册表（`sources/index.ts`），路由按 `source` 参数分发到对应 adapter。
-- shared 被双方直引 TS 源码（`exports` → `./src/*.ts`），构建时内联，无独立发布。
-- 下载器依赖适配层的 detail + streamUrl；本地库只存结果，不反向依赖适配器实现。
+## 关键数据流
 
-## 数据流
-- 浏览：web → `GET /api/sources/:id/list?page=` → adapter.list() → curl 抓源站 → cheerio 解析 → `Page<VideoSummary>`。
-- 详情：`GET /api/sources/:id/detail/:vid` → 解析 `<video><source>` 多清晰度直链 + 相关推荐。
-- 播放（双播）：web → `GET /api/library/play/:source/:id` → 本地库命中则返回 `/api/library/media/<file>`（本地优先）；否则 `offline=0` 时返回流代理地址。
-- 直放：`<video src="/api/sources/hanime1/stream?v=&quality=">` → curl `-r` 透传 → 上游 206 分片。
-- 下载：`POST /api/library/downloads` → 入队 → 详情快照 → 流式写 `.part` → 重命名 → 封面 → 入库（含全量元数据 JSON）。
-- 图片：所有封面经 `/api/sources/:id/image?url=` 白名单代理（源站防盗链）。
-
-## 外部系统
-- hanime1.me：Laravel SSR，无列表/详情 JSON API；列表与播放地址全在 HTML 内。
-  - Cloudflare 防护：WAF 会按 **TLS 指纹** 与 **请求头名大小写** 判定；Node fetch 即使带有效 `cf_clearance` 也被 ban，因此传输层走系统 curl，并把头名规范化为浏览器形态（`User-Agent`/`Cookie`）。
-  - 本地 DNS 被污染：DoH 查询（优先经代理）解析真实 Cloudflare IP，再以 `curl --resolve` 直连 IPv4。
-- 部署面：pm2 单进程（`.xat/workflows/ci-cd.yml`），`vp pack` 产物自包含（shared 已内联）。
+- **发现**：Scheduler 按 `interval_sec` 到期 → adapter 发现方法 → 与 `subscription_seen` 差集 →
+  新条目 `Downloader.enqueue` → 全量记入 seen。
+- **下载**：detail 取元数据 → 若候选带 `audioUrl` 则双轨下载 + ffmpeg `-c copy` 合并 →
+  校验长度 → 原子重命名 → 写封面 → 入 `library`（含 `category` 分区列）。
+- **观看**：库卡片 → `/api/library/play`（本地优先）→ `<video>` 走 `/api/library/media/*`（支持 Range）。
+- **配置**：设置页写入 `settings` 表（密文）→ 立即改内存 client 参数；启动时库内配置覆盖环境变量。
 
 ## 重要技术边界
-- 前端不感知任何源站细节：新增源只允许改 server 侧 + shared 契约。
-- 源站解析代码隔离在 `sources/` 目录内，失败只影响单源，不拖垮 `/api`（`onError` 统一映射）。
-- 面向电视的焦点导航（`@noriginmedia/norigin-spatial-navigation`）是前端第一等公民，不是鼠标交互的补丁。
-- 离线模式下任何源站请求短路：播放解析只认本地库。
+
+- 上游请求一律经 curl：Cloudflare 按 TLS 指纹与头名大小写判定，Python TLS 栈会被 ban。
+- 流代理与下载分离：`<video>` 只能吃渐进式，B 站直放走 `fnval=1` 的 durl，下载走 dash。
+- 凭据接口永不回明文；扫码成功后由服务端直接落库，不经过浏览器。
+- 新源只允许改 `sources/` 与注册表，路由与前端零改动。

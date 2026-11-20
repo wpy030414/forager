@@ -7,7 +7,7 @@
 - 部署：单容器，`docker compose up -d` 即用
 
 > 本仓库前身是 `libre-tv`（Hono + TS 全栈）。forager 用 Python 重写后端并保持接口契约，
-> 旧实现保留在 `apps/server`，其设计记录见 `docs/`。
+> 旧的 TS 后端已移除，历史设计记录在 `docs/legacy/`。
 
 ## 三个页面
 
@@ -49,7 +49,8 @@ docker compose up -d --build
 
 ```bash
 cd server && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
-FORAGER_STATIC_DIR=../apps/server/dist/client .venv/bin/python -m forager
+pnpm --filter @libre-tv/web build     # 产物输出到 server/static
+.venv/bin/python -m forager          # 默认即托管 server/static
 
 pnpm --filter @libre-tv/web dev    # 另一个终端，/api 自动代理
 cd server && .venv/bin/python -m pytest -q
