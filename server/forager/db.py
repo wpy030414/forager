@@ -91,6 +91,45 @@ class Database:
         with self._lock:
             self.conn.executescript(SCHEMA)
             self.conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """增量迁移：只加列不删列，兼容已有数据目录。"""
+        library_cols = {r["name"] for r in self.query("PRAGMA table_info(library)")}
+        if "category" not in library_cols:
+            self.execute("ALTER TABLE library ADD COLUMN category TEXT")
+        sub_cols = {r["name"] for r in self.query("PRAGMA table_info(subscriptions)")}
+        for column, ddl in (
+            ("parent_id", "INTEGER"),
+            ("title", "TEXT"),
+            ("status", "TEXT"),
+            ("last_error", "TEXT"),
+        ):
+            if column not in sub_cols:
+                self.execute(f"ALTER TABLE subscriptions ADD COLUMN {column} {ddl}")
+        self.execute(
+            "CREATE INDEX IF NOT EXISTS idx_library_facet ON library(source, category)"
+        )
+        self._backfill_categories()
+
+    def _backfill_categories(self) -> None:
+        """旧记录的分区从 meta_json 里补：优先 category，退回 tname / tags[0]。"""
+        import json as _json
+
+        rows = self.query("SELECT key, meta_json FROM library WHERE category IS NULL")
+        for row in rows:
+            try:
+                meta = _json.loads(row["meta_json"])
+            except Exception:  # noqa: BLE001
+                continue
+            category = meta.get("category") or meta.get("tname")
+            if not category:
+                tags = meta.get("tags") or []
+                category = tags[0] if tags else None
+            if category:
+                self.execute(
+                    "UPDATE library SET category = ? WHERE key = ?", (str(category), row["key"])
+                )
 
     # ---- 读写 ----
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:

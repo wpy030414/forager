@@ -41,6 +41,7 @@ def _row_to_item(row) -> dict[str, Any]:
         "coverFile": row["cover_file"] or None,
         "sizeBytes": row["size_bytes"],
         "downloadedAt": row["downloaded_at"],
+        "category": row["category"] if "category" in row.keys() else None,
     }
 
 
@@ -62,9 +63,47 @@ async def set_mode(request: Request) -> dict[str, bool]:
 # ---- 本地库条目 ----
 
 @router.get("/items")
-async def list_items(request: Request) -> list[dict[str, Any]]:
-    rows = request.app.state.db.query("SELECT * FROM library ORDER BY downloaded_at DESC")
+async def list_items(
+    request: Request,
+    source: str | None = None,
+    category: str | None = None,
+    q: str | None = None,
+) -> list[dict[str, Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+    if source:
+        where.append("source = ?")
+        params.append(source)
+    if category:
+        where.append("category = ?")
+        params.append(category)
+    if q:
+        where.append("meta_json LIKE ?")
+        params.append(f"%{q}%")
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    rows = request.app.state.db.query(
+        f"SELECT * FROM library{clause} ORDER BY downloaded_at DESC", tuple(params)
+    )
     return [_row_to_item(row) for row in rows]
+
+
+@router.get("/facets")
+async def facets(request: Request) -> dict[str, Any]:
+    """库的分面：来源与分区（分区来自源站，不是 tag）。"""
+    db = request.app.state.db
+    sources = [
+        {"source": r["source"], "count": r["n"]}
+        for r in db.query("SELECT source, COUNT(*) AS n FROM library GROUP BY source")
+    ]
+    categories = [
+        {"source": r["source"], "category": r["category"], "count": r["n"]}
+        for r in db.query(
+            "SELECT source, category, COUNT(*) AS n FROM library "
+            "WHERE category IS NOT NULL AND category != '' "
+            "GROUP BY source, category ORDER BY n DESC"
+        )
+    ]
+    return {"sources": sources, "categories": categories, "total": sum(s["count"] for s in sources)}
 
 
 @router.get("/items/{key}")

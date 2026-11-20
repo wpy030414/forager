@@ -20,7 +20,7 @@ from ..source_config import SourceConfigStore
 from ..sources.base import SourceError
 from ..subs.scheduler import SubscriptionScheduler
 from ..transport.curl import CurlError
-from . import library, settings as settings_routes, sources, subscriptions
+from . import auth, library, settings as settings_routes, sources, tree
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,8 +72,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(sources.router)
     app.include_router(library.router)
-    app.include_router(subscriptions.router)
+    app.include_router(tree.router)
     app.include_router(settings_routes.router)
+    app.include_router(auth.router)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

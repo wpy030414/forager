@@ -195,17 +195,22 @@ class Downloader:
 
             # 4) 入库（元数据全量快照）
             item_size = target.stat().st_size
+            category = detail.get("category")
+            if not category:
+                tags = detail.get("tags") or []
+                category = tags[0] if tags else None
             self.db.execute(
                 "INSERT INTO library (key, source, video_id, meta_json, quality, file_name, "
-                "cover_file, size_bytes, downloaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "cover_file, size_bytes, downloaded_at, category) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET meta_json = excluded.meta_json, "
                 "quality = excluded.quality, file_name = excluded.file_name, "
                 "cover_file = excluded.cover_file, size_bytes = excluded.size_bytes, "
-                "downloaded_at = excluded.downloaded_at",
+                "downloaded_at = excluded.downloaded_at, category = excluded.category",
                 (
                     job["key"], job["source"], job["id"],
                     __import__("json").dumps(detail, ensure_ascii=False),
-                    quality, file_name, cover_file, item_size, now_iso(),
+                    quality, file_name, cover_file, item_size, now_iso(), category,
                 ),
             )
 

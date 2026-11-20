@@ -41,11 +41,14 @@ export interface SourceConfigField {
   configured?: boolean
   /** 敏感字段的掩码，如 ****abcd */
   hint?: string
+  /** select 类型的候选项 */
+  options?: Array<{ value: string; label: string }>
 }
 
 export interface SourceConfig {
   source: string
   name: string
+  canQrcode?: boolean
   fields: SourceConfigField[]
 }
 
@@ -53,6 +56,59 @@ export interface TestResult {
   ok: boolean
   latencyMs: number
   message: string
+}
+
+export interface TreeNode {
+  id: number
+  parentId: number | null
+  source: string
+  kind: string
+  value: string
+  title: string
+  intervalSec: number
+  quality: string
+  enabled: boolean
+  lastRunAt: string | null
+  status: string
+  lastError: string | null
+  discovered: number
+  done: number
+  pending: number
+  total?: { discovered: number; done: number }
+  children: TreeNode[]
+}
+
+export interface TreeGroup {
+  source: string
+  name: string
+  kinds: string[]
+  categories: Array<{ id: string; name: string }>
+  qualityOptions: string[]
+  nodes: TreeNode[]
+  total: { discovered: number; done: number }
+}
+
+export interface TreeResponse {
+  sources: TreeGroup[]
+  total: { discovered: number; done: number }
+}
+
+export interface Facets {
+  sources: Array<{ source: string; count: number }>
+  categories: Array<{ source: string; category: string; count: number }>
+  total: number
+}
+
+export interface QrCode {
+  key: string
+  url: string
+  image: string
+}
+
+export interface QrPoll {
+  status: number
+  message: string
+  saved?: boolean
 }
 
 export class ApiError extends Error {
@@ -103,12 +159,41 @@ export const api = {
     get<{ positionMs: number; durationMs: number | null } | null>(
       `/api/library/progress/${source}/${id}`,
     ),
+  // ---- 库（分面筛选） ----
+  libraryItems: (filters: { source?: string; category?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.source) qs.set('source', filters.source)
+    if (filters.category) qs.set('category', filters.category)
+    if (filters.q) qs.set('q', filters.q)
+    const suffix = qs.toString()
+    return get<LibraryItem[]>(`/api/library/items${suffix ? `?${suffix}` : ''}`)
+  },
+  facets: () => get<Facets>('/api/library/facets'),
+
+  // ---- 线索树 ----
+  tree: () => get<TreeResponse>('/api/tree'),
+  createNode: (body: {
+    source: string
+    kind: string
+    value: string
+    intervalSec: number
+    quality?: string
+    title?: string
+  }) => send<TreeNode>('/api/tree/nodes', 'POST', body),
+  deleteNode: (id: number) => send<{ ok: true }>(`/api/tree/nodes/${id}`, 'DELETE'),
+  syncNode: (id: number) =>
+    send<{ ok: true; enqueued: number }>(`/api/tree/nodes/${id}/sync`, 'POST'),
+
+  // ---- 扫码登录 ----
+  qrcode: (source: string) => get<QrCode>(`/api/auth/${source}/qrcode`),
+  pollQrcode: (source: string, key: string) =>
+    get<QrPoll>(`/api/auth/${source}/qrcode/poll?key=${encodeURIComponent(key)}`),
+
   // ---- 设置 ----
   settingsSources: () => get<SourceConfig[]>('/api/settings/sources'),
   saveSourceSettings: (source: string, values: Record<string, string>) =>
     send<{ ok: boolean; config?: SourceConfig }>(`/api/settings/sources/${source}`, 'PUT', values),
-  testSource: (source: string) =>
-    send<TestResult>(`/api/settings/sources/${source}/test`, 'POST'),
+  testSource: (source: string) => send<TestResult>(`/api/settings/sources/${source}/test`, 'POST'),
 
   saveProgress: (source: string, id: string, positionMs: number, durationMs: number) =>
     send<{ ok: true }>(`/api/library/progress/${source}/${id}`, 'PUT', {

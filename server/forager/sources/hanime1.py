@@ -42,8 +42,11 @@ class Hanime1Source(BaseSource):
         "proxy",
         "dns_proxy",
         "pinned_ip",
+        "quality",
         "min_interval_ms",
     )
+    kinds: ClassVar[tuple[str, ...]] = ("query", "partition")
+    quality_options: ClassVar[tuple[str, ...]] = ("1080", "720", "480")
 
     def __init__(self, client) -> None:
         super().__init__(client)
@@ -124,6 +127,9 @@ class Hanime1Source(BaseSource):
             "related": related,
             "tags": self._parse_tags(tree),
         }
+        # 分区：hanime1 没有独立分区字段，取首个 genre 作为分区
+        if result["tags"]:
+            result["category"] = result["tags"][0]
         if poster:
             result["coverUrl"] = poster
         if uploader:

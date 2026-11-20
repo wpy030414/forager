@@ -1,46 +1,49 @@
-import type { DownloadJob, LibraryItem } from '@libre-tv/shared/types'
-import { useEffect, useState } from 'react'
-import { Trash2, Wifi, WifiOff } from 'lucide-react'
+import type { LibraryItem } from '@libre-tv/shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import { Play } from 'lucide-react'
 import { api, fmtBytes, fmtDuration } from '@/api/client'
+import type { Facets } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
 
-/** 本地库：已下载条目 + 下载队列 + 在线/离线切换 */
+/**
+ * 库：只展示本地内容，按「来源」与「源站分区」筛选（分区不是 tag）。
+ */
 export function LibraryPage({
   onPlay,
-  onSelect,
 }: {
-  onPlay: (item: {
-    source: string
-    id: string
-    title: string
-    url: string
-    startAtMs: number
-  }) => void
-  onSelect: (item: LibraryItem) => void
+  onPlay: (t: { source: string; id: string; title: string; url: string; startAtMs: number }) => void
 }) {
   const [items, setItems] = useState<LibraryItem[]>([])
-  const [jobs, setJobs] = useState<DownloadJob[]>([])
-  const [offline, setOffline] = useState(false)
+  const [facets, setFacets] = useState<Facets>()
+  const [source, setSource] = useState('')
+  const [category, setCategory] = useState('')
   const [error, setError] = useState<string>()
+  const [loading, setLoading] = useState(true)
 
-  const refresh = async () => {
+  const load = useCallback(async () => {
+    setLoading(true)
     try {
-      const [lib, dl, mode] = await Promise.all([api.library(), api.downloads(), api.mode()])
+      const [lib, fac] = await Promise.all([
+        api.libraryItems({ source: source || undefined, category: category || undefined }),
+        api.facets(),
+      ])
       setItems(lib)
-      setJobs(dl)
-      setOffline(mode.offline)
+      setFacets(fac)
+      setError(undefined)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [source, category])
 
   useEffect(() => {
-    void refresh()
-    const id = setInterval(() => void refresh(), 3000)
-    return () => clearInterval(id)
-  }, [])
+    void load()
+  }, [load])
 
-  const playLocal = async (item: LibraryItem) => {
+  const categories = (facets?.categories ?? []).filter((c) => !source || c.source === source)
+
+  const play = async (item: LibraryItem) => {
     const progress = await api.progress(item.source, item.id).catch(() => null)
     onPlay({
       source: item.source,
@@ -51,129 +54,156 @@ export function LibraryPage({
     })
   }
 
-  const remove = async (key: string) => {
-    await api.deleteItem(key).catch(() => {})
-    await refresh()
-  }
-
-  const active = jobs.filter((j) => j.status === 'downloading' || j.status === 'queued')
-  const failed = jobs.filter((j) => j.status === 'error')
-
   return (
-    <div className="space-y-10 px-12 pb-24 pt-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">本地库</h1>
-        <Focusable onEnter={() => void api.setMode(!offline).then(refresh)} scale="sm">
-          <span
-            className={[
-              'flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold',
-              offline ? 'bg-amber-400 text-black' : 'bg-white/10 text-white',
-            ].join(' ')}
-          >
-            {offline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
-            {offline ? '离线模式（仅本地）' : '在线模式'}
-          </span>
-        </Focusable>
+    <div className="space-y-8 px-12 pb-24 pt-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">库</h1>
+          <p className="mt-1 text-sm text-zinc-400">本地已归档内容 · 共 {facets?.total ?? 0} 条</p>
+        </div>
+        <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-zinc-300">
+          当前筛选：{items.length} 条
+        </span>
       </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Chip
+          active={!source}
+          label={`全部 ${facets?.total ?? 0}`}
+          onClick={() => {
+            setSource('')
+            setCategory('')
+          }}
+        />
+        {(facets?.sources ?? []).map((s) => (
+          <Chip
+            key={s.source}
+            active={source === s.source}
+            label={`${s.source} ${s.count}`}
+            onClick={() => {
+              setSource(s.source)
+              setCategory('')
+            }}
+          />
+        ))}
+      </div>
+
+      {categories.length > 0 ? (
+        <div className="flex flex-wrap gap-2 border-t border-white/5 pt-5">
+          <Chip small active={!category} label="全部分区" onClick={() => setCategory('')} />
+          {categories.map((c) => (
+            <Chip
+              key={`${c.source}:${c.category}`}
+              small
+              active={category === c.category}
+              label={`${c.category} ${c.count}`}
+              onClick={() => setCategory(c.category)}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
-      {active.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">下载队列</h2>
-          {active.map((j) => (
-            <div key={j.key} className="rounded-xl bg-white/5 p-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="truncate text-zinc-200">
-                  {j.title || j.key} · {j.quality}p
-                </span>
-                <span className="ml-4 shrink-0 tabular-nums text-zinc-400">
-                  {j.status === 'queued'
-                    ? '排队中'
-                    : `${j.progress}% · ${fmtBytes(j.receivedBytes)}`}
-                </span>
-              </div>
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-sky-400"
-                  style={{ width: `${j.progress}%` }}
-                />
-              </div>
-            </div>
+      {loading && items.length === 0 ? (
+        <p className="text-sm text-zinc-500">读取中…</p>
+      ) : items.length === 0 ? (
+        <EmptyState filtered={Boolean(source || category)} />
+      ) : (
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {items.map((item) => (
+            <LibraryCard key={item.key} item={item} onPlay={() => void play(item)} />
           ))}
-        </section>
-      ) : null}
-
-      {failed.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">失败任务</h2>
-          {failed.map((j) => (
-            <p key={j.key} className="text-sm text-amber-300/90">
-              {j.title || j.key}：{j.error}
-            </p>
-          ))}
-        </section>
-      ) : null}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-          已下载 · {items.length}
-        </h2>
-        {items.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            {offline ? '离线模式下没有可播放内容，请先切回在线并下载。' : '还没有下载任何视频。'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-4">
-            {items.map((it) => (
-              <Focusable
-                key={it.key}
-                onEnter={() => void playLocal(it)}
-                className="overflow-hidden rounded-2xl bg-zinc-900"
-              >
-                <div className="aspect-video overflow-hidden">
-                  {it.coverFile ? (
-                    <img
-                      src={`/api/library/media/${it.coverFile}`}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-zinc-800 p-4 text-center text-xs text-zinc-500">
-                      {it.meta.title}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-1 p-3">
-                  <p className="line-clamp-2 text-sm font-medium text-white">{it.meta.title}</p>
-                  <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                    <span>
-                      {it.quality}p · {fmtBytes(it.sizeBytes)}
-                      {it.meta.durationSec ? ` · ${fmtDuration(it.meta.durationSec)}` : ''}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSelect(it)
-                      }}
-                      className="text-zinc-600 hover:text-zinc-300"
-                      aria-label="详情"
-                    >
-                      <Trash2
-                        className="h-3.5 w-3.5"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void remove(it.key)
-                        }}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </Focusable>
-            ))}
-          </div>
-        )}
-      </section>
+        </div>
+      )}
     </div>
+  )
+}
+
+function EmptyState({ filtered }: { filtered: boolean }) {
+  return (
+    <div className="rounded-3xl border border-dashed border-white/10 px-6 py-16 text-center">
+      <p className="text-sm text-zinc-400">{filtered ? '当前筛选下没有内容' : '库还是空的'}</p>
+      <p className="mt-2 text-xs text-zinc-500">
+        去「线索树」加一条线索，或在已有线索上点「同步」开始采集
+      </p>
+    </div>
+  )
+}
+
+function LibraryCard({ item, onPlay }: { item: LibraryItem; onPlay: () => void }) {
+  const [failed, setFailed] = useState(false)
+  const cover = item.coverFile
+    ? `/api/library/media/${item.coverFile}`
+    : api.image(item.source, item.meta.coverUrl)
+
+  return (
+    <div className="group">
+      <Focusable onEnter={onPlay} className="w-full">
+        <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-zinc-900">
+          {cover && !failed ? (
+            <img
+              src={cover}
+              alt=""
+              loading="lazy"
+              onError={() => setFailed(true)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-950 px-3 text-center text-xs text-zinc-500">
+              {item.meta.title}
+            </div>
+          )}
+          <div className="pointer-events-none absolute inset-0 bg-black/0 transition group-hover:bg-black/20" />
+          <span className="absolute right-2 top-2 rounded-md bg-black/70 px-2 py-0.5 text-[11px] font-medium text-white/90 backdrop-blur">
+            {item.quality}
+          </span>
+          {item.meta.durationSec ? (
+            <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-2 py-0.5 text-[11px] tabular-nums text-white/90 backdrop-blur">
+              {fmtDuration(item.meta.durationSec)}
+            </span>
+          ) : null}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-black">
+              <Play className="h-5 w-5" />
+            </span>
+          </div>
+        </div>
+      </Focusable>
+      <div className="mt-2 space-y-1 px-1">
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-white">
+          {item.meta.title}
+        </p>
+        <p className="text-[11px] text-zinc-400">
+          {item.category ?? '未分区'} · {item.source} · {fmtBytes(item.sizeBytes)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function Chip({
+  label,
+  active,
+  onClick,
+  small = false,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+  small?: boolean
+}) {
+  return (
+    <Focusable scale="sm" onEnter={onClick}>
+      <span
+        className={[
+          'block rounded-full px-4 font-medium transition-colors',
+          small ? 'py-1 text-xs' : 'py-1.5 text-sm',
+          active ? 'bg-white text-black' : 'bg-white/10 text-zinc-300 hover:bg-white/20',
+        ].join(' ')}
+      >
+        {label}
+      </span>
+    </Focusable>
   )
 }

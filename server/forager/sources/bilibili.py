@@ -23,6 +23,7 @@ from urllib.parse import urlencode
 from .base import BaseSource, SourceError
 
 API = "https://api.bilibili.com"
+PASSPORT = "https://passport.bilibili.com"
 WEB = "https://www.bilibili.com/"
 
 #: WBI mixin key 的固定置换表（64 位，公开常量）
@@ -49,6 +50,32 @@ QN_LABELS: dict[int, str] = {
     6: "240P",
 }
 LABEL_QN: dict[str, int] = {label: qn for qn, label in QN_LABELS.items()}
+
+#: 主分区（tid → 名称）。B 站分区体系相对稳定，用静态表避免多打一次接口
+PARTITIONS: list[dict[str, str]] = [
+    {"id": "1", "name": "动画"},
+    {"id": "13", "name": "番剧"},
+    {"id": "167", "name": "国创"},
+    {"id": "3", "name": "音乐"},
+    {"id": "129", "name": "舞蹈"},
+    {"id": "4", "name": "游戏"},
+    {"id": "36", "name": "知识"},
+    {"id": "188", "name": "科技"},
+    {"id": "234", "name": "运动"},
+    {"id": "223", "name": "汽车"},
+    {"id": "160", "name": "生活"},
+    {"id": "211", "name": "美食"},
+    {"id": "217", "name": "动物圈"},
+    {"id": "119", "name": "鬼畜"},
+    {"id": "155", "name": "时尚"},
+    {"id": "5", "name": "娱乐"},
+    {"id": "181", "name": "影视"},
+    {"id": "202", "name": "资讯"},
+    {"id": "23", "name": "电影"},
+    {"id": "11", "name": "电视剧"},
+    {"id": "177", "name": "纪录片"},
+    {"id": "71", "name": "综艺"},
+]
 
 API_ERRORS: dict[int, str] = {
     -101: "Bilibili 未登录（需要 SESSDATA 才能访问高清晰度）",
@@ -158,6 +185,7 @@ def build_detail(
         "qualities": qualities,
         "related": [],
         "tags": [view["tname"]] if view.get("tname") else [],
+        "category": view.get("tname"),
         "durationSec": view.get("duration"),
         "views": stat.get("view"),
     }
@@ -197,7 +225,10 @@ class BilibiliSource(BaseSource):
         "bilibili.com",
         "bili2233.cn",
     )
-    config_fields: ClassVar[tuple[str, ...]] = ("cookie", "proxy", "min_interval_ms")
+    config_fields: ClassVar[tuple[str, ...]] = ("cookie", "proxy", "quality", "min_interval_ms")
+    kinds: ClassVar[tuple[str, ...]] = ("query", "partition", "uploader", "favorites", "following")
+    quality_options: ClassVar[tuple[str, ...]] = ("8K", "4K", "1080P60", "1080P", "720P", "480P", "360P")
+    supports_qrcode: ClassVar[bool] = True
 
     def __init__(self, client) -> None:
         super().__init__(client)
@@ -287,6 +318,117 @@ class BilibiliSource(BaseSource):
         if qualities:
             return qualities[0]["url"]
         raise SourceError("该稿件没有可用的播放地址（可能需要登录）", 404)
+
+    # ---- 线索树：发现能力 ----
+
+    def categories(self) -> list[dict[str, str]]:
+        return PARTITIONS
+
+    async def partition_items(self, value: str, page: int = 1) -> dict[str, Any]:
+        """分区发现：用排行榜，天然按热度排序，适合持续盯。"""
+        data = await self._get(
+            "/x/web-interface/ranking/v2", {"rid": value or "0", "type": "all"}, ttl_ms=300_000
+        )
+        items = [self._summary(v) for v in data.get("list") or []]
+        return {"items": items, "page": 1, "hasMore": False}
+
+    async def uploader_items(self, value: str, page: int = 1) -> dict[str, Any]:
+        """UP 主投稿：需要 WBI 签名；未登录时常吃 -352。"""
+        await self._ensure_session()
+        data = await self._get_wbi(
+            "/x/space/wbi/arc/search",
+            {"mid": value, "pn": max(1, int(page or 1)), "ps": 30, "order": "pubdate"},
+            ttl_ms=120_000,
+        )
+        vlist = ((data.get("list") or {}).get("vlist")) or []
+        return {"items": [self._space_summary(v) for v in vlist], "page": page, "hasMore": bool(vlist)}
+
+    async def favorite_uploaders(self) -> list[dict[str, str]]:
+        """收藏夹 → 出现过作品的发布者（去重）。"""
+        mid = await self._self_mid()
+        folders = await self._get("/x/v3/fav/folder/created/list-all", {"up_mid": mid}, ttl_ms=0)
+        found: dict[int, str] = {}
+        for folder in folders.get("list") or []:
+            media_id = folder.get("id")
+            if not media_id:
+                continue
+            page = 1
+            while page <= 20:
+                res = await self._get(
+                    "/x/v3/fav/resource/list",
+                    {"media_id": media_id, "pn": page, "ps": 20, "platform": "web"},
+                    ttl_ms=0,
+                )
+                for item in res.get("medias") or []:
+                    upper = item.get("upper") or {}
+                    if upper.get("mid"):
+                        found[int(upper["mid"])] = upper.get("name") or str(upper["mid"])
+                if not res.get("has_more"):
+                    break
+                page += 1
+        return [{"id": str(k), "title": v} for k, v in found.items()]
+
+    async def following_uploaders(self) -> list[dict[str, str]]:
+        mid = await self._self_mid()
+        found: dict[int, str] = {}
+        page = 1
+        while page <= 10:
+            data = await self._get(
+                "/x/relation/followings", {"vmid": mid, "pn": page, "ps": 50}, ttl_ms=0
+            )
+            users = data.get("list") or []
+            for user in users:
+                if user.get("mid"):
+                    found[int(user["mid"])] = user.get("uname") or str(user["mid"])
+            if len(users) < 50:
+                break
+            page += 1
+        return [{"id": str(k), "title": v} for k, v in found.items()]
+
+    async def _self_mid(self) -> int:
+        await self._ensure_session()
+        data = await self._get("/x/web-interface/nav", allow={-101})
+        mid = data.get("mid")
+        if not mid:
+            raise SourceError("需要登录：请先在设置页配置 Cookie 或扫码登录", 401)
+        return int(mid)
+
+    def _space_summary(self, video: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "id": video.get("bvid") or "",
+            "source": self.id,
+            "title": _text(video.get("title")),
+        }
+        if video.get("pic"):
+            out["coverUrl"] = _https(video["pic"])
+        seconds = _duration_seconds(video.get("length"))
+        if seconds:
+            out["durationSec"] = seconds
+        if video.get("play") is not None:
+            out["views"] = video["play"]
+        if video.get("author"):
+            out["uploader"] = video["author"]
+        return out
+
+    # ---- 扫码登录 ----
+
+    async def qrcode_generate(self) -> dict[str, Any]:
+        data = await self._json(f"{PASSPORT}/x/passport-login/web/qrcode/generate", 0)
+        return {"key": data.get("qrcode_key") or "", "url": data.get("url") or ""}
+
+    async def qrcode_poll(self, key: str) -> dict[str, Any]:
+        """data.code：0 成功 / 86101 未扫码 / 86090 已扫待确认 / 86038 已过期。"""
+        from urllib.parse import quote
+
+        data = await self._json(
+            f"{PASSPORT}/x/passport-login/web/qrcode/poll?qrcode_key={quote(key)}", 0
+        )
+        status = int(data.get("code") or 0)
+        result: dict[str, Any] = {"status": status, "message": data.get("message") or ""}
+        cookie = _cookie_from_login_url(data.get("url") or "") if status == 0 else ""
+        if cookie:
+            result["cookie"] = cookie
+        return result
 
     # ---- 内部请求 ----
 
@@ -399,6 +541,19 @@ class BilibiliSource(BaseSource):
 
 
 # ---- 工具 ----
+
+def _cookie_from_login_url(url: str) -> str:
+    """登录成功后的跳转 URL 里带着凭据，拆成标准 Cookie 串。"""
+    from urllib.parse import parse_qs, urlparse
+
+    query = parse_qs(urlparse(url).query)
+    parts = []
+    for name in ("SESSDATA", "bili_jct", "DedeUserID"):
+        value = (query.get(name) or [""])[0]
+        if value:
+            parts.append(f"{name}={value}")
+    return "; ".join(parts)
+
 
 def _key_from_url(url: str) -> str:
     name = url.rsplit("/", 1)[-1]

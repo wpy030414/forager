@@ -30,6 +30,12 @@ class BaseSource:
     image_hosts: ClassVar[tuple[str, ...]] = ()
     #: 可在 Web 设置页调整的字段（见 source_config.FIELD_META）
     config_fields: ClassVar[tuple[str, ...]] = ()
+    #: 线索树支持的发现类型
+    kinds: ClassVar[tuple[str, ...]] = ("query",)
+    #: 可选清晰度（空表示不限制）
+    quality_options: ClassVar[tuple[str, ...]] = ()
+    #: 是否支持扫码登录（设置页据此显示按钮）
+    supports_qrcode: ClassVar[bool] = False
 
     def __init__(self, client: UpstreamClient) -> None:
         self.client = client
@@ -61,6 +67,30 @@ class BaseSource:
 
     async def detail(self, vid: str) -> dict[str, Any]:
         raise NotImplementedError
+
+    # ---- 线索树用的发现能力（按源可选实现）----
+
+    def categories(self) -> list[dict[str, str]]:
+        """源站分区列表：id 用于订阅，name 用于展示。"""
+        return []
+
+    async def partition_items(self, value: str, page: int = 1) -> dict[str, Any]:
+        raise SourceError("该源不支持按分区发现", 400)
+
+    async def uploader_items(self, value: str, page: int = 1) -> dict[str, Any]:
+        raise SourceError("该源不支持按发布者发现", 400)
+
+    async def favorite_uploaders(self) -> list[dict[str, str]]:
+        raise SourceError("该源不支持收藏夹展开", 400)
+
+    async def following_uploaders(self) -> list[dict[str, str]]:
+        raise SourceError("该源不支持关注列表展开", 400)
+
+    async def qrcode_generate(self) -> dict[str, str]:
+        raise SourceError("该源不支持扫码登录", 400)
+
+    async def qrcode_poll(self, key: str) -> dict[str, Any]:
+        raise SourceError("该源不支持扫码登录", 400)
 
     # ---- 播放 / 图片 ----
 

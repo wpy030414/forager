@@ -42,6 +42,12 @@ FIELD_META: dict[str, dict[str, str]] = {
         "placeholder": "104.26.8.104",
         "help": "跳过 DoH，直接用该 IP 访问源站",
     },
+    "quality": {
+        "label": "默认清晰度",
+        "type": "select",
+        "placeholder": "",
+        "help": "线索未单独指定时使用；「跟随默认」表示取源站最优",
+    },
     "min_interval_ms": {
         "label": "请求间隔（毫秒）",
         "type": "number",
@@ -108,6 +114,11 @@ class SourceConfigStore:
             for field in source.config_fields:
                 meta = FIELD_META.get(field, {"label": field, "type": "text"})
                 item: dict[str, Any] = {"key": field, **meta}
+                if field == "quality":
+                    item["type"] = "select"
+                    item["options"] = [{"value": "", "label": "跟随默认"}] + [
+                        {"value": q, "label": q} for q in source.quality_options
+                    ]
                 value = stored.get(field)
                 if field in SECRET_FIELDS:
                     item["configured"] = bool(value)
@@ -115,5 +126,12 @@ class SourceConfigStore:
                 else:
                     item["value"] = value if value is not None else ""
                 fields.append(item)
-            result.append({"source": source_id, "name": source.name, "fields": fields})
+            result.append(
+                {
+                    "source": source_id,
+                    "name": source.name,
+                    "canQrcode": bool(source.supports_qrcode),
+                    "fields": fields,
+                }
+            )
         return result

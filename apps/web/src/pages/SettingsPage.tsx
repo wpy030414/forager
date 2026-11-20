@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react'
-import { Check, Loader2, PlugZap } from 'lucide-react'
-import type { SourceConfig, SourceConfigField } from '@/api/client'
+import { useCallback, useEffect, useState } from 'react'
+import { Check, Loader2, PlugZap, QrCode as QrIcon, RefreshCw } from 'lucide-react'
+import type { QrCode, SourceConfig, SourceConfigField } from '@/api/client'
 import { api } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
 
 type Status = { kind: 'ok' | 'err' | 'info'; text: string }
 
 /**
- * 设置页：源站凭据与网络参数。
- * 敏感字段不回显明文，只显示掩码；保存后服务端热更新，无需重启容器。
+ * 设置：源站凭据与网络参数。
+ * 敏感字段只显示掩码；B 站支持扫码登录，凭据由服务端直接落库，不经过前端。
  */
 export function SettingsPage() {
   const [configs, setConfigs] = useState<SourceConfig[]>([])
@@ -17,25 +17,23 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string>()
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setConfigs(await api.settingsSources())
       setError(undefined)
     } catch (e) {
       setError((e as Error).message)
     }
-  }
+  }, [])
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [load])
 
   const setDraft = (source: string, key: string, value: string) =>
-    setDrafts((d) => ({ ...d, [source]: { ...(d[source] ?? {}), [key]: value } }))
+    setDrafts((d) => ({ ...d, [source]: { ...d[source], [key]: value } }))
 
-  const mark = (source: string, s: Status) =>
-    setStatus((cur) => ({ ...cur, [source]: s }))
-
+  const mark = (source: string, s: Status) => setStatus((cur) => ({ ...cur, [source]: s }))
   const setRunning = (source: string, running: boolean) =>
     setBusy((cur) => ({ ...cur, [source]: running }))
 
@@ -51,10 +49,6 @@ export function SettingsPage() {
     }
     Object.assign(payload, overrides ?? {})
 
-    if (Object.keys(payload).length === 0) {
-      mark(cfg.source, { kind: 'info', text: '没有改动' })
-      return
-    }
     setRunning(cfg.source, true)
     try {
       await api.saveSourceSettings(cfg.source, payload)
@@ -86,7 +80,7 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">设置</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          源站凭据与网络参数。保存后立即生效，不用重启容器；敏感字段只显示掩码。
+          用户凭证、默认清晰度与网络参数。保存后立即生效，不用重启容器。
         </p>
       </div>
 
@@ -104,6 +98,7 @@ export function SettingsPage() {
             onSave={() => void save(cfg)}
             onClear={(key) => void save(cfg, { [key]: '' })}
             onTest={() => void test(cfg)}
+            onQrDone={load}
           />
         ))}
         {configs.length === 0 && !error ? (
@@ -123,6 +118,7 @@ function SourceCard({
   onSave,
   onClear,
   onTest,
+  onQrDone,
 }: {
   cfg: SourceConfig
   draft: Record<string, string>
@@ -132,7 +128,10 @@ function SourceCard({
   onSave: () => void
   onClear: (key: string) => void
   onTest: () => void
+  onQrDone: () => void | Promise<void>
 }) {
+  const [qrOpen, setQrOpen] = useState(false)
+
   return (
     <section className="rounded-3xl bg-white/[0.06] p-6 ring-1 ring-white/10">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -143,9 +142,21 @@ function SourceCard({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {cfg.canQrcode ? (
+            <Focusable scale="sm" onEnter={() => setQrOpen((v) => !v)}>
+              <span className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white">
+                <QrIcon className="h-3.5 w-3.5" />
+                扫码登录
+              </span>
+            </Focusable>
+          ) : null}
           <Focusable scale="sm" onEnter={busy ? undefined : onTest}>
             <span className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white">
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlugZap className="h-3.5 w-3.5" />}
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <PlugZap className="h-3.5 w-3.5" />
+              )}
               测试连接
             </span>
           </Focusable>
@@ -157,6 +168,8 @@ function SourceCard({
           </Focusable>
         </div>
       </header>
+
+      {qrOpen && cfg.canQrcode ? <QrLogin source={cfg.source} onDone={onQrDone} /> : null}
 
       <div className="space-y-4">
         {cfg.fields.map((field) => (
@@ -188,6 +201,84 @@ function SourceCard({
   )
 }
 
+function QrLogin({ source, onDone }: { source: string; onDone: () => void | Promise<void> }) {
+  const [qr, setQr] = useState<QrCode>()
+  const [phase, setPhase] = useState<'loading' | 'wait' | 'scanned' | 'done' | 'expired' | 'error'>(
+    'loading',
+  )
+  const [message, setMessage] = useState('')
+
+  const start = useCallback(async () => {
+    setPhase('loading')
+    setMessage('')
+    try {
+      setQr(await api.qrcode(source))
+      setPhase('wait')
+    } catch (e) {
+      setPhase('error')
+      setMessage((e as Error).message)
+    }
+  }, [source])
+
+  useEffect(() => {
+    void start()
+  }, [start])
+
+  useEffect(() => {
+    if (!qr || (phase !== 'wait' && phase !== 'scanned')) return
+    let alive = true
+    const timer = setInterval(async () => {
+      try {
+        const r = await api.pollQrcode(source, qr.key)
+        if (!alive) return
+        if (r.status === 0) {
+          setPhase('done')
+          setMessage('登录成功，凭据已保存')
+          void onDone()
+        } else if (r.status === 86090) {
+          setPhase('scanned')
+          setMessage('已扫码，请在手机上确认')
+        } else if (r.status === 86038) {
+          setPhase('expired')
+          setMessage('二维码已过期，请刷新')
+        }
+      } catch {
+        /* 轮询失败继续重试 */
+      }
+    }, 2000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [qr, phase, source, onDone])
+
+  return (
+    <div className="mb-5 flex items-center gap-5 rounded-2xl bg-black/30 p-4">
+      {qr && phase !== 'expired' && phase !== 'error' ? (
+        <img src={qr.image} alt="登录二维码" className="h-40 w-40 rounded-xl bg-white p-1" />
+      ) : (
+        <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-white/5 text-xs text-zinc-500">
+          {phase === 'loading' ? '生成中…' : phase === 'expired' ? '已过期' : '不可用'}
+        </div>
+      )}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-white">
+          {phase === 'done' ? '✓ 登录成功' : '用哔哩哔哩 App 扫码'}
+        </p>
+        <p className="text-xs text-zinc-400">{message || '扫码后凭据自动保存，不会经过浏览器'}</p>
+        {phase === 'expired' || phase === 'error' ? (
+          <Focusable scale="sm" onEnter={() => void start()}>
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white">
+              <RefreshCw className="h-3 w-3" />
+              刷新二维码
+            </span>
+          </Focusable>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function FieldRow({
   field,
   drafted,
@@ -200,7 +291,9 @@ function FieldRow({
   onClear: () => void
 }) {
   const isSecret = field.type === 'secret'
-  const value = isSecret ? (drafted ?? '') : (drafted ?? (field.value === undefined ? '' : String(field.value)))
+  const value = isSecret
+    ? (drafted ?? '')
+    : (drafted ?? (field.value === undefined ? '' : String(field.value)))
 
   return (
     <label className="block">
@@ -220,16 +313,32 @@ function FieldRow({
           )
         ) : null}
       </span>
-      <input
-        type={isSecret ? 'password' : field.type === 'number' ? 'number' : 'text'}
-        autoComplete="off"
-        spellCheck={false}
-        value={value}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl bg-black/40 px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 outline-none ring-1 ring-white/10 transition focus:ring-white/40"
-      />
-      {field.help ? <span className="mt-1 block text-[11px] text-zinc-500">{field.help}</span> : null}
+
+      {field.type === 'select' ? (
+        <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+          {(field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={isSecret ? 'password' : field.type === 'number' ? 'number' : 'text'}
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className={inputClass}
+        />
+      )}
+      {field.help ? (
+        <span className="mt-1 block text-[11px] text-zinc-500">{field.help}</span>
+      ) : null}
     </label>
   )
 }
+
+const inputClass =
+  'w-full rounded-xl bg-black/40 px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 outline-none ring-1 ring-white/10 transition focus:ring-white/40'

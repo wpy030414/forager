@@ -1,23 +1,15 @@
-import type { LibraryItem, VideoSummary } from '@libre-tv/shared/types'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { destroy, init, setFocus } from '@noriginmedia/norigin-spatial-navigation'
 import { api } from '@/api/client'
 import { Player } from '@/components/Player'
 import { StatusPill, TopTabs } from '@/components/TopTabs'
-import { DetailPage } from '@/pages/DetailPage'
-import { HomePage } from '@/pages/HomePage'
 import { LibraryPage } from '@/pages/LibraryPage'
-import { SearchPage } from '@/pages/SearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { TreePage } from '@/pages/TreePage'
 
-type Page =
-  | { name: 'home' }
-  | { name: 'search' }
-  | { name: 'library' }
-  | { name: 'settings' }
-  | { name: 'detail'; source: string; id: string }
+type Page = { name: 'library' } | { name: 'tree' } | { name: 'settings' }
 
-interface PlayTarget {
+export interface PlayTarget {
   source: string
   id: string
   title: string
@@ -26,38 +18,23 @@ interface PlayTarget {
 }
 
 const TABS = [
-  { key: 'home', label: '首页' },
-  { key: 'search', label: '搜索' },
-  { key: 'library', label: '本地库' },
+  { key: 'library', label: '库' },
+  { key: 'tree', label: '线索树' },
   { key: 'settings', label: '设置' },
 ]
 
-/** hash 路由：让刷新/深链保持位置，也便于外部直达详情 */
 function parseHash(): Page {
   const h = window.location.hash.replace(/^#\/?/, '')
-  if (h.startsWith('detail/')) {
-    const [, source, id] = h.split('/')
-    if (source && id) return { name: 'detail', source, id }
-  }
-  if (h === 'search') return { name: 'search' }
-  if (h === 'library') return { name: 'library' }
+  if (h === 'tree') return { name: 'tree' }
   if (h === 'settings') return { name: 'settings' }
-  return { name: 'home' }
+  return { name: 'library' }
 }
 
 function toHash(p: Page): string {
-  switch (p.name) {
-    case 'detail':
-      return `#/detail/${p.source}/${p.id}`
-    case 'home':
-      return '#/'
-    default:
-      return `#/${p.name}`
-  }
+  return p.name === 'library' ? '#/' : `#/${p.name}`
 }
 
-// 必须在任何 useFocusable 注册之前完成初始化：子组件的 useFocusable 在
-// 渲染期注册，而父组件的 useEffect 更晚执行。放在模块顶层可保证顺序。
+// 必须在任何 useFocusable 注册之前完成初始化
 init({
   debug: false,
   visualDebug: false,
@@ -70,13 +47,7 @@ export function App() {
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
   const [ready, setReady] = useState(false)
 
-  // 空间导航初始化。
-  // 注意：库的 init() 在 enabled 为 true 时整段跳过初始化（含 layoutAdapter），
-  // 而 React StrictMode 会挂载→卸载→再挂载，第二次 init 若不先 destroy 会留下
-  // layoutAdapter=undefined，随后 updateLayout 抛 measureLayout 错误。
   useEffect(() => {
-    // StrictMode 的卸载会 destroy 掉全局单例，重新挂载时必须再 init，
-    // 否则后续 addFocusable 时 layoutAdapter 为 undefined
     init({
       debug: false,
       visualDebug: false,
@@ -90,7 +61,6 @@ export function App() {
     }
   }, [])
 
-  // 页面 → hash，并响应浏览器前进/后退
   useEffect(() => {
     const want = toHash(page)
     if (window.location.hash !== want) window.history.pushState(null, '', want)
@@ -104,16 +74,12 @@ export function App() {
 
   useEffect(() => {
     if (!ready) return
-    // 不主动触发 updateAllLayouts：库会遍历所有已注册焦点节点，
-    // 页面切换瞬间旧节点已卸载但尚未注销，遍历会对 undefined 调 measureLayout。
-    // 改为等新页面挂载并自注册后（两帧）再设焦点。
-    const active = page.name === 'detail' ? 'home' : page.name
-    const key = active === 'library' ? 'LIBRARY-MODE' : `TAB-${active}`
+    // 等新页面挂载并完成焦点注册（两帧）后再设焦点
     let inner: ReturnType<typeof setTimeout> | undefined
     const t = setTimeout(() => {
       inner = setTimeout(() => {
         try {
-          void setFocus(key).catch(() => {})
+          void setFocus(`TAB-${page.name}`).catch(() => {})
         } catch {
           /* key 未注册：保持现状 */
         }
@@ -125,67 +91,20 @@ export function App() {
     }
   }, [page, ready])
 
-  const openDetail = useCallback(
-    (v: { source: string; id: string } | VideoSummary | LibraryItem) => {
-      setPage({ name: 'detail', source: v.source, id: v.id })
-    },
-    [],
-  )
-
-  const startPlay = useCallback(async (t: PlayTarget) => {
-    // 在线模式下每次播放都重新解析（签名直链会过期），本地条目直接本地地址
-    if (t.url.startsWith('/api/library/media/')) {
-      setPlaying(t)
-      return
-    }
-    try {
-      const r = await api.play(t.source, t.id)
-      setPlaying({ ...t, url: r.url })
-    } catch {
-      setPlaying(t)
-    }
-  }, [])
-
-  const tabs = useMemo(() => TABS, [])
+  const startPlay = useCallback((target: PlayTarget) => setPlaying(target), [])
+  const stopPlay = useCallback(() => setPlaying(null), [])
 
   return (
     <div className="relative min-h-screen bg-[hsl(var(--background))] pb-10">
       <StatusPill />
       {!playing ? (
-        <TopTabs
-          tabs={tabs}
-          active={page.name === 'detail' ? 'home' : page.name}
-          onSelect={(k) =>
-            setPage(
-              k === 'search'
-                ? { name: 'search' }
-                : k === 'library'
-                  ? { name: 'library' }
-                  : k === 'settings'
-                    ? { name: 'settings' }
-                    : { name: 'home' },
-            )
-          }
-        />
+        <TopTabs tabs={TABS} active={page.name} onSelect={(k) => setPage(parseHashFromKey(k))} />
       ) : null}
 
       <main className="relative">
-        {!playing && page.name === 'home' ? <HomePage onSelect={openDetail} /> : null}
-        {!playing && page.name === 'search' ? <SearchPage onSelect={openDetail} /> : null}
-        {!playing && page.name === 'library' ? (
-          <LibraryPage onPlay={startPlay} onSelect={openDetail} />
-        ) : null}
+        {!playing && page.name === 'library' ? <LibraryPage onPlay={startPlay} /> : null}
+        {!playing && page.name === 'tree' ? <TreePage /> : null}
         {!playing && page.name === 'settings' ? <SettingsPage /> : null}
-        {!playing && page.name === 'detail' ? (
-          <DetailPage
-            key={`${page.source}:${page.id}`}
-            source={page.source}
-            id={page.id}
-            onPlay={startPlay}
-            onBack={() => setPage({ name: 'home' })}
-            onSelect={openDetail}
-          />
-        ) : null}
       </main>
 
       {playing ? (
@@ -193,7 +112,7 @@ export function App() {
           src={playing.url}
           title={playing.title}
           startAtMs={playing.startAtMs}
-          onExit={() => setPlaying(null)}
+          onExit={stopPlay}
           onProgress={(pos, dur) => {
             void api.saveProgress(playing.source, playing.id, pos, dur).catch(() => {})
           }}
@@ -201,4 +120,10 @@ export function App() {
       ) : null}
     </div>
   )
+}
+
+function parseHashFromKey(key: string): Page {
+  if (key === 'tree') return { name: 'tree' }
+  if (key === 'settings') return { name: 'settings' }
+  return { name: 'library' }
 }
