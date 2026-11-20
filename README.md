@@ -21,6 +21,7 @@
 |------|------|
 | 源适配层 | `BaseSource` 契约（list / search / detail / stream / image），单源失败不影响其他路由 |
 | hanime1 源 | 移植自旧实现：选择器表 + 卡片/详情解析 + 时长/播放量/ID 解析器 |
+| Bilibili 源 | WBI 签名、buvid3 自取、dash 音视频双轨 + ffmpeg 合并、durl 渐进式直放、avc 优先 |
 | 传输层 | `curl` 子进程（TLS 指纹过 Cloudflare WAF）+ 头名规范化 + 每主机串行频控 + HTML 短 TTL 缓存 |
 | DNS | DoH 自解析（1.1.1.1 / doh.pub / dns.google）+ `--resolve` 直连 IPv4，破本地 DNS 污染 |
 | 播放 | 双播：本地优先，未下载则走源站 Range 代理 |
@@ -108,6 +109,8 @@ curl -X POST http://localhost:11408/api/subscriptions \
 首次运行只补抓最新 `FORAGER_SUB_INITIAL` 条（默认 3），其余仅记为「已见」，
 所以订阅一个分区不会把全站拉下来。
 
+Bilibili 目前只支持 `kind=query`（走搜索）；热门页没有稳定的分区参数，`kind=genre` 对它无意义。
+
 ## 配置
 
 | 变量 | 默认 | 说明 |
@@ -119,6 +122,9 @@ curl -X POST http://localhost:11408/api/subscriptions \
 | `HANIME1_DNS_PROXY` | — | 仅 DoH 走代理，站点仍直连 |
 | `HANIME1_RESOLVE` | — | 钉死上游 IPv4，跳过 DoH |
 | `HANIME1_COOKIE` | — | `cf_clearance=...` |
+| `BILIBILI_COOKIE` | — | 含 `SESSDATA` 的 Cookie，决定可用的最高清晰度 |
+| `BILIBILI_PROXY` | — | B 站上游代理（海外访问通常需要 CN 出口） |
+| `BILIBILI_MIN_INTERVAL_MS` | 1200 | B 站请求间隔（放太快会吃 `-352`） |
 | `FORAGER_MIN_INTERVAL_MS` | 400 | 同一上游最小请求间隔 |
 | `FORAGER_DOWNLOAD_CONCURRENCY` | 1 | 下载并发 |
 | `FORAGER_SUB_INITIAL` | 3 | 订阅首轮补抓上限 |
@@ -126,7 +132,8 @@ curl -X POST http://localhost:11408/api/subscriptions \
 
 ## 已知限制
 
-- 目前只接入 hanime1；Bilibili / 网易云音乐 / Pixiv / CCTV 待接入（适配器契约已为异构认证模型留好位置）
+- 已接入 hanime1、Bilibili；网易云音乐 / Pixiv / CCTV 待接入
+- Bilibili 匿名只能取 360P/480P；高清晰度需要 `BILIBILI_COOKIE`（SESSDATA）。`list` 走热门页，`category` 参数无效
 - 下载并发默认 1，不支持断点续传跨重启（单次进程内可取消）
 - 无字幕轨合并、无 DRM 处理（遇到即标为不支持）
 - hanime1 有 Cloudflare 防护：大陆直连通常需要代理或有效的 `cf_clearance`

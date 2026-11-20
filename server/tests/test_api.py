@@ -29,7 +29,7 @@ def make_settings(tmp_path) -> Settings:
 def test_health_and_sources(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
-        assert client.get("/api/sources").json() == [{"id": "hanime1", "name": "Hanime1"}]
+        assert [s["id"] for s in client.get("/api/sources").json()] == ["hanime1", "bilibili"]
         assert client.get("/api/library/items").json() == []
         assert client.get("/api/library/mode").json() == {"offline": False}
 

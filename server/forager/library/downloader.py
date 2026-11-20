@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import os
 import re
+from pathlib import Path
 from typing import Any, Callable
 
 from ..db import Database, now_iso
@@ -137,7 +138,7 @@ class Downloader:
                 self._tasks.pop(key, None)
 
     async def _run(self, job: dict[str, Any]) -> None:
-        part_path = None
+        parts: list[Path] = []
         try:
             job["status"] = "downloading"
             job["startedAt"] = now_iso()
@@ -160,27 +161,34 @@ class Downloader:
             target = self.db.media_path(file_name)
             target.parent.mkdir(parents=True, exist_ok=True)
             part_path = target.with_name(target.name + ".part")
+            parts.append(part_path)
 
-            # 2) 流式下载
-            stream = await source.open_stream(job["id"], quality)
-            try:
-                total = stream.content_length
-                job["totalBytes"] = total
-                received = 0
-                with open(part_path, "wb") as handle:
-                    async for chunk in stream.iter_chunks():
-                        handle.write(chunk)
-                        received += len(chunk)
-                        job["receivedBytes"] = received
-                        job["progress"] = min(99, received * 100 // total) if total else 0
-            finally:
-                await stream.aclose()
+            # 2) 下载：dash 音视频分离 → 双轨 + ffmpeg 合并；durl / 直链 → 单文件落盘
+            qualities = detail.get("qualities") or []
+            candidate = next((q for q in qualities if q.get("label") == quality), None)
+            audio_url = (candidate or {}).get("audioUrl")
+            video_url = (candidate or {}).get("url") or await source.stream_url(job["id"], quality)
 
-            size = part_path.stat().st_size
-            if total and size < total:
-                raise RuntimeError(f"下载不完整：{size}/{total} 字节")
+            job["totalBytes"] = 0
+            job["receivedBytes"] = 0
+
+            if audio_url:
+                video_part = part_path.with_name(target.name + ".video.part")
+                audio_part = part_path.with_name(target.name + ".audio.part")
+                parts.extend([video_part, audio_part])
+                await self._download_to(source, video_url, video_part, job, 0, 85)
+                await self._download_to(source, audio_url, audio_part, job, 85, 98)
+                job["progress"] = 98
+                await self._mux(video_part, audio_part, part_path)
+                for extra in (video_part, audio_part):
+                    with contextlib.suppress(FileNotFoundError):
+                        extra.unlink()
+                    parts.remove(extra)
+            else:
+                await self._download_to(source, video_url, part_path, job, 0, 99)
+
             os.replace(part_path, target)
-            part_path = None
+            parts.remove(part_path)
 
             # 3) 封面（失败不阻断）
             cover_file = await self._save_cover(source, detail.get("coverUrl"), stem)
@@ -207,12 +215,12 @@ class Downloader:
             self._log(f"[download] {job['key']} 完成 {item_size / 1048576:.1f}MB")
 
         except asyncio.CancelledError:
-            self._cleanup_part(part_path)
+            self._cleanup(parts)
             job["status"] = "error"
             job["error"] = "已取消"
             raise
         except Exception as exc:  # noqa: BLE001 —— 任何失败都要落成任务状态
-            self._cleanup_part(part_path)
+            self._cleanup(parts)
             job["status"] = "error"
             job["error"] = str(exc) or exc.__class__.__name__
             self._log(f"[download] {job['key']} 失败：{job['error']}")
@@ -232,8 +240,46 @@ class Downloader:
             self._log(f"[download] 封面失败（忽略）：{exc}")
             return None
 
+    async def _download_to(self, source, url: str, path, job: dict[str, Any], lo: int, hi: int) -> None:
+        """把一条轨下到 path；进度映射到 [lo, hi] 区间。"""
+        handle = await source.client.stream(url)
+        try:
+            total = handle.content_length
+            if total:
+                job["totalBytes"] = (job.get("totalBytes") or 0) + total
+            received = 0
+            with open(path, "wb") as out:
+                async for chunk in handle.iter_chunks():
+                    out.write(chunk)
+                    received += len(chunk)
+                    job["receivedBytes"] = (job.get("receivedBytes") or 0) + len(chunk)
+                    if total:
+                        job["progress"] = lo + (hi - lo) * received // total
+        finally:
+            await handle.aclose()
+
+        if total and received < total:
+            raise RuntimeError(f"下载不完整：{received}/{total} 字节")
+
+    async def _mux(self, video, audio, target) -> None:
+        """dash 音视频轨合并：只 remux 不重编码，NAS 的 CPU 不该浪费在转码上。"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", str(video), "-i", str(audio),
+                "-c", "copy", "-movflags", "+faststart",
+                "-f", "mp4", str(target),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("未找到 ffmpeg：无法合并 dash 音视频轨（镜像需预装 ffmpeg）") from exc
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg 合并失败：{err.decode('utf-8', 'replace')[:200]}")
+
     @staticmethod
-    def _cleanup_part(part_path) -> None:
-        if part_path is not None:
+    def _cleanup(parts: list[Path]) -> None:
+        for path in parts:
             with contextlib.suppress(FileNotFoundError):
-                part_path.unlink()
+                path.unlink()

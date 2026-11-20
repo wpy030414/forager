@@ -38,6 +38,7 @@ class UpstreamClient:
         dns_proxy: str | None = None,
         pinned_ip: str | None = None,
         cookie: str | None = None,
+        referer: str | None = None,
         min_interval_ms: int = 400,
         cache_ttl_ms: int = 60_000,
     ) -> None:
@@ -47,6 +48,7 @@ class UpstreamClient:
         self.dns_proxy = dns_proxy
         self.pinned_ip = pinned_ip
         self.cookie = cookie
+        self.referer = referer or (self.base_url + "/")
         self.min_interval = min_interval_ms / 1000
         self.cache_ttl = cache_ttl_ms / 1000
 
@@ -60,7 +62,7 @@ class UpstreamClient:
     def _base_headers(self) -> dict[str, str]:
         headers = {
             "User-Agent": self.user_agent,
-            "Referer": self.base_url + "/",
+            "Referer": self.referer,
         }
         if self.cookie:
             headers["Cookie"] = self.cookie

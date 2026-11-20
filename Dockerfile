@@ -20,9 +20,9 @@ ENV PYTHONUNBUFFERED=1 \
     FORAGER_STATIC_DIR=/app/static \
     TZ=Asia/Shanghai
 
-# curl 是传输层的硬依赖（见 ADR-5：TLS 指纹过 Cloudflare）；gosu 用于降权
+# curl 是传输层硬依赖（ADR-5：TLS 指纹过 Cloudflare）；ffmpeg 用于合并 dash 音视频轨；gosu 用于降权
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl tzdata gosu \
+ && apt-get install -y --no-install-recommends curl ffmpeg tzdata gosu \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

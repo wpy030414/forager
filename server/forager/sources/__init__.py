@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..config import Settings
 from ..transport.client import UpstreamClient
 from .base import BaseSource, SourceError
+from .bilibili import BilibiliSource
 from .hanime1 import Hanime1Source
 
 DEFAULT_UA = (
@@ -26,7 +27,18 @@ def create_sources(settings: Settings) -> dict[str, BaseSource]:
             cache_ttl_ms=settings.html_cache_ttl_ms,
         )
     )
-    sources: list[BaseSource] = [hanime1]
+    bilibili = BilibiliSource(
+        UpstreamClient(
+            base_url="https://api.bilibili.com",
+            user_agent=DEFAULT_UA,
+            proxy=settings.bilibili_proxy,
+            cookie=settings.bilibili_cookie,
+            referer="https://www.bilibili.com/",
+            min_interval_ms=max(settings.min_interval_ms, settings.bilibili_min_interval_ms),
+            cache_ttl_ms=settings.html_cache_ttl_ms,
+        )
+    )
+    sources: list[BaseSource] = [hanime1, bilibili]
     return {source.id: source for source in sources}
 
 
