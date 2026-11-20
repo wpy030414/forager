@@ -8,11 +8,13 @@ import { DetailPage } from '@/pages/DetailPage'
 import { HomePage } from '@/pages/HomePage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { SearchPage } from '@/pages/SearchPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 
 type Page =
   | { name: 'home' }
   | { name: 'search' }
   | { name: 'library' }
+  | { name: 'settings' }
   | { name: 'detail'; source: string; id: string }
 
 interface PlayTarget {
@@ -27,6 +29,7 @@ const TABS = [
   { key: 'home', label: '首页' },
   { key: 'search', label: '搜索' },
   { key: 'library', label: '本地库' },
+  { key: 'settings', label: '设置' },
 ]
 
 /** hash 路由：让刷新/深链保持位置，也便于外部直达详情 */
@@ -38,6 +41,7 @@ function parseHash(): Page {
   }
   if (h === 'search') return { name: 'search' }
   if (h === 'library') return { name: 'library' }
+  if (h === 'settings') return { name: 'settings' }
   return { name: 'home' }
 }
 
@@ -157,7 +161,9 @@ export function App() {
                 ? { name: 'search' }
                 : k === 'library'
                   ? { name: 'library' }
-                  : { name: 'home' },
+                  : k === 'settings'
+                    ? { name: 'settings' }
+                    : { name: 'home' },
             )
           }
         />
@@ -169,6 +175,7 @@ export function App() {
         {!playing && page.name === 'library' ? (
           <LibraryPage onPlay={startPlay} onSelect={openDetail} />
         ) : null}
+        {!playing && page.name === 'settings' ? <SettingsPage /> : null}
         {!playing && page.name === 'detail' ? (
           <DetailPage
             key={`${page.source}:${page.id}`}

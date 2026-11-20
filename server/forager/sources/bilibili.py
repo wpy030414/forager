@@ -197,12 +197,20 @@ class BilibiliSource(BaseSource):
         "bilibili.com",
         "bili2233.cn",
     )
+    config_fields: ClassVar[tuple[str, ...]] = ("cookie", "proxy", "min_interval_ms")
 
     def __init__(self, client) -> None:
         super().__init__(client)
         self._lock = asyncio.Lock()
         self._session_ready = False
         self._mixin: tuple[float, str] | None = None
+
+    def apply_config(self, config: dict[str, Any]) -> None:
+        super().apply_config(config)
+        # Cookie 变了要重新走一遍 buvid3 补全与 WBI 取键
+        if "cookie" in config:
+            self._session_ready = False
+            self._mixin = None
 
     # ---- 契约方法 ----
 

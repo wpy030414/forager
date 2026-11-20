@@ -28,9 +28,28 @@ class BaseSource:
     name: ClassVar[str] = ""
     #: 允许经图片代理回源的主机后缀（防盗链白名单）
     image_hosts: ClassVar[tuple[str, ...]] = ()
+    #: 可在 Web 设置页调整的字段（见 source_config.FIELD_META）
+    config_fields: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, client: UpstreamClient) -> None:
         self.client = client
+
+    def apply_config(self, config: dict[str, Any]) -> None:
+        """把设置页保存的配置热应用到 client，无需重启容器。"""
+        if "cookie" in config:
+            self.client.cookie = config["cookie"] or None
+        if "proxy" in config:
+            self.client.proxy = config["proxy"] or None
+        if "dns_proxy" in config:
+            self.client.dns_proxy = config["dns_proxy"] or None
+        if "pinned_ip" in config:
+            self.client.pinned_ip = config["pinned_ip"] or None
+        if "min_interval_ms" in config:
+            try:
+                ms = int(config["min_interval_ms"])
+            except (TypeError, ValueError):
+                ms = 0
+            self.client.min_interval = max(0, ms) / 1000
 
     # ---- 三个必须实现的方法 ----
 

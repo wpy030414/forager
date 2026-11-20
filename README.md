@@ -28,6 +28,7 @@
 | 下载 | `.part` 原子落盘、content-length 校验、元数据全量快照、封面降级 |
 | 缓存 | 元数据 7 天 + 直链单独判过期（过期只刷直链）；封面按 URL 哈希落盘 |
 | 订阅 | `(源, 类型, 值)` 定时轮询，差集入队，永不重复下载同一条 |
+| 设置页 | Web 端配置各源 Cookie / 代理 / 请求间隔；凭据 Fernet 加密落库、只回掩码、保存即热生效 |
 | 打包 | 多阶段 Docker（前端构建 + Python 运行）、PUID/PGID 降权、健康检查 |
 
 ## 快速开始
@@ -90,6 +91,9 @@ server/forager/
 | GET/PUT | `/api/library/mode` | 在线 / 离线开关 |
 | GET/PUT | `/api/library/progress/:source/:id` | 续看进度 |
 | GET/POST/DELETE | `/api/subscriptions` | 订阅管理 |
+| GET | `/api/settings/sources` | 各源可配置项（敏感字段仅回掩码） |
+| PUT | `/api/settings/sources/:id` | 保存并热应用 |
+| POST | `/api/settings/sources/:id/test` | 用当前配置试连一次 |
 | POST | `/api/subscriptions/run` | 立即跑一轮订阅 |
 
 ## 订阅怎么用
@@ -125,10 +129,23 @@ Bilibili 目前只支持 `kind=query`（走搜索）；热门页没有稳定的�
 | `BILIBILI_COOKIE` | — | 含 `SESSDATA` 的 Cookie，决定可用的最高清晰度 |
 | `BILIBILI_PROXY` | — | B 站上游代理（海外访问通常需要 CN 出口） |
 | `BILIBILI_MIN_INTERVAL_MS` | 1200 | B 站请求间隔（放太快会吃 `-352`） |
+| `FORAGER_SECRET_KEY` | 自动生成 | 凭据加密密钥（Fernet urlsafe base64）。不填则存到 `data/.secret_key`，**换机器请显式指定** |
 | `FORAGER_MIN_INTERVAL_MS` | 400 | 同一上游最小请求间隔 |
 | `FORAGER_DOWNLOAD_CONCURRENCY` | 1 | 下载并发 |
 | `FORAGER_SUB_INITIAL` | 3 | 订阅首轮补抓上限 |
 | `FORAGER_SUB_TICK` | 30 | 调度器巡检间隔（秒） |
+
+## 在 Web 端配置源
+
+打开「设置」页，每个源一张卡片：
+
+- **Cookie**：粘贴浏览器里复制的整串（如 `SESSDATA=...; bili_jct=...`），保存后立即生效
+- **上游代理 / DoH 代理 / 钉死 IP**：用于被墙或 DNS 污染的网络环境
+- **请求间隔**：调大可缓解风控（B 站小于 1000ms 容易吃 `-352`）
+- 「测试连接」会用保存后的配置实际打一次源站，返回条数与耗时
+
+设置页保存的值**优先于环境变量**，存在 `settings` 表里；Cookie 用 Fernet 加密，接口只回 `****abcd` 这样的掩码。
+密钥取 `FORAGER_SECRET_KEY`，未设置时自动生成到 `data/.secret_key`（0600）。
 
 ## 已知限制
 

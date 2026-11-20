@@ -37,6 +37,13 @@ class Hanime1Source(BaseSource):
     id: ClassVar[str] = "hanime1"
     name: ClassVar[str] = "Hanime1"
     image_hosts: ClassVar[tuple[str, ...]] = ("hembed.com", "hanime1.me", "hanimeone.me")
+    config_fields: ClassVar[tuple[str, ...]] = (
+        "cookie",
+        "proxy",
+        "dns_proxy",
+        "pinned_ip",
+        "min_interval_ms",
+    )
 
     def __init__(self, client) -> None:
         super().__init__(client)

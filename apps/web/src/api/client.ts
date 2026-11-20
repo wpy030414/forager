@@ -29,6 +29,32 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
   return (await res.json()) as T
 }
 
+export interface SourceConfigField {
+  key: string
+  label: string
+  type: 'text' | 'secret' | 'number'
+  placeholder?: string
+  help?: string
+  /** 非敏感字段的当前值 */
+  value?: string | number
+  /** 敏感字段是否已配置 */
+  configured?: boolean
+  /** 敏感字段的掩码，如 ****abcd */
+  hint?: string
+}
+
+export interface SourceConfig {
+  source: string
+  name: string
+  fields: SourceConfigField[]
+}
+
+export interface TestResult {
+  ok: boolean
+  latencyMs: number
+  message: string
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -77,6 +103,13 @@ export const api = {
     get<{ positionMs: number; durationMs: number | null } | null>(
       `/api/library/progress/${source}/${id}`,
     ),
+  // ---- 设置 ----
+  settingsSources: () => get<SourceConfig[]>('/api/settings/sources'),
+  saveSourceSettings: (source: string, values: Record<string, string>) =>
+    send<{ ok: boolean; config?: SourceConfig }>(`/api/settings/sources/${source}`, 'PUT', values),
+  testSource: (source: string) =>
+    send<TestResult>(`/api/settings/sources/${source}/test`, 'POST'),
+
   saveProgress: (source: string, id: string, positionMs: number, durationMs: number) =>
     send<{ ok: true }>(`/api/library/progress/${source}/${id}`, 'PUT', {
       positionMs,

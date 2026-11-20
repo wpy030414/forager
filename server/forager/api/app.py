@@ -15,10 +15,12 @@ from ..db import Database
 from ..library.cache import ImageCache, MetaCache
 from ..library.downloader import Downloader
 from ..sources import create_sources
+from ..secrets import SecretBox, load_key
+from ..source_config import SourceConfigStore
 from ..sources.base import SourceError
 from ..subs.scheduler import SubscriptionScheduler
 from ..transport.curl import CurlError
-from . import library, sources, subscriptions
+from . import library, settings as settings_routes, sources, subscriptions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +39,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.settings = settings
         app.state.db = db
         app.state.sources = source_map
+        app.state.source_config = SourceConfigStore(
+            db, SecretBox(load_key(settings.data_dir, settings.secret_key))
+        )
+        # 设置页保存过的配置优先于环境变量：启动时覆盖到各源 client
+        app.state.source_config.apply_all(source_map)
         app.state.meta = MetaCache(db)
         app.state.images = ImageCache(db.media_dir / ".cover-cache")
         app.state.downloader = Downloader(
@@ -66,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sources.router)
     app.include_router(library.router)
     app.include_router(subscriptions.router)
+    app.include_router(settings_routes.router)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
