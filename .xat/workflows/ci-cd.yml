@@ -1,15 +1,32 @@
 steps:
+  - name: Checkout
+    run: |
+      # 老版本 git（< 2.40）从 bundle clone 时可能只建远端跟踪引用、不建本地分支，
+      # 导致工作树为空；此时按远端最新提交强制检出，让全新部署也能自愈。
+      if [ ! -f compose.yaml ] && git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null; then
+        git checkout -B main refs/remotes/origin/main
+      fi
+  - name: Prepare
+    run: |
+      touch .env
+      grep -q '^PORT=' .env || echo 'PORT=8096' >> .env
+      mkdir -p data
+
   - name: Build
+    run: docker compose build
+
+  - name: Up
+    run: docker compose up -d --remove-orphans
+
+  - name: Health
     run: |
-      avail_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
-      if [ "${avail_kb:-0}" -lt 4194304 ]; then
-        export NODE_OPTIONS='--max-old-space-size=1024'
-      fi
-      vp install
-      pnpm build
-  - name: Run
-    run: |
-      if pm2 jlist 2>/dev/null | grep -q '"name":"libre-tv"'; then
-        pm2 delete libre-tv
-      fi
-      pm2 start 'pnpm start' --name libre-tv
+      for i in $(seq 1 45); do
+        if curl -fsS http://127.0.0.1:8096/api/health >/dev/null 2>&1; then
+          echo "健康检查通过"
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "健康检查失败，容��日志：" >&2
+      docker compose logs --tail=80
+      exit 1

@@ -1,8 +1,8 @@
-# syntax=docker/dockerfile:1
 
 # ---------- 1) 前端构建：复用 libre-tv 的 tvOS SPA ----------
 FROM node:26-alpine AS web
-RUN corepack enable
+# Node 26 官方镜像已不再内置 corepack，直接装 pnpm 并指向国内源
+RUN npm install -g pnpm@12 --registry=https://registry.npmmirror.com
 WORKDIR /build
 COPY . .
 RUN pnpm install --frozen-lockfile
@@ -20,10 +20,19 @@ ENV PYTHONUNBUFFERED=1 \
     FORAGER_STATIC_DIR=/app/static \
     TZ=Asia/Shanghai
 
-# curl 是传输层硬依赖（ADR-5：TLS 指纹过 Cloudflare）；ffmpeg 用于合并 dash 音视频轨；gosu 用于降权
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ffmpeg tzdata gosu \
- && rm -rf /var/lib/apt/lists/*
+# 系统依赖：curl 是传输层硬依赖（ADR-5：TLS 指纹过 Cloudflare），
+# ffmpeg 用于合并 dash 音视频轨，gosu 用于降权。
+# Debian 官方源在国内很慢（ffmpeg 依赖树又大），先换清华源再装。
+RUN set -eux; \
+    for f in /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list; do \
+        if [ -f "$f" ]; then \
+            sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; \
+                    s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' "$f"; \
+        fi; \
+    done; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ffmpeg tzdata gosu; \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY server/pyproject.toml ./server/pyproject.toml
