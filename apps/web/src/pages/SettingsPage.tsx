@@ -76,7 +76,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="space-y-10 px-12 pb-24 pt-6">
+    <div className="space-y-10 px-12 pb-24 pt-28">
       <div>
         <h1 className="text-2xl font-bold text-white">设置</h1>
         <p className="mt-2 text-sm text-zinc-400">

@@ -1,4 +1,5 @@
 import type {
+  ContinueItem,
   DownloadJob,
   LibraryItem,
   Page,
@@ -32,7 +33,7 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
 export interface SourceConfigField {
   key: string
   label: string
-  type: 'text' | 'secret' | 'number'
+  type: 'text' | 'secret' | 'number' | 'select'
   placeholder?: string
   help?: string
   /** 非敏感字段的当前值 */
@@ -142,6 +143,8 @@ export const api = {
   // ---- 本地库 / 双播 ----
   library: () => get<LibraryItem[]>('/api/library/items'),
   libraryKeys: () => get<string[]>('/api/library/keys'),
+  continueWatching: (limit = 12) => get<ContinueItem[]>(`/api/library/continue?limit=${limit}`),
+  recent: (limit = 12) => get<LibraryItem[]>(`/api/library/recent?limit=${limit}`),
   mode: () => get<{ offline: boolean }>('/api/library/mode'),
   setMode: (offline: boolean) =>
     send<{ offline: boolean }>('/api/library/mode', 'PUT', { offline }),

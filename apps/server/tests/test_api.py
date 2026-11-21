@@ -114,6 +114,46 @@ def test_library_keys_is_lightweight_list(tmp_path) -> None:
         assert client.get("/api/library/keys").json() == ["hanime1:1"]
 
 
+def test_home_continue_and_recent(tmp_path) -> None:
+    app = create_app(make_settings(tmp_path))
+    with TestClient(app) as client:
+        db = app.state.db
+        for key, title in (("hanime1:1", "片一"), ("hanime1:2", "片二")):
+            db.execute(
+                "INSERT INTO library (key, source, video_id, meta_json, quality, file_name, "
+                "cover_file, size_bytes, downloaded_at, category) "
+                "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+                (
+                    key,
+                    "hanime1",
+                    key.split(":")[1],
+                    '{"title": "%s"}' % title,
+                    "1080",
+                    f"{key}.mp4",
+                    1,
+                    "2026-01-01T00:00:00Z",
+                    "动画",
+                ),
+            )
+        # 进度未完成 → 进入继续播放
+        db.execute(
+            "INSERT INTO progress (key, position_ms, duration_ms, updated_at) "
+            "VALUES ('hanime1:1', 60000, 600000, '2026-01-02T00:00:00Z')"
+        )
+        # 已看完 → 不再出现在继续播放
+        db.execute(
+            "INSERT INTO progress (key, position_ms, duration_ms, updated_at) "
+            "VALUES ('hanime1:2', 599000, 600000, '2026-01-03T00:00:00Z')"
+        )
+
+        cont = client.get("/api/library/continue").json()
+        assert [item["key"] for item in cont] == ["hanime1:1"]
+        assert cont[0]["progress"]["positionMs"] == 60000
+
+        recent = client.get("/api/library/recent?limit=1").json()
+        assert len(recent) == 1
+
+
 def test_library_facets_and_filters(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.get("/api/library/facets").json()["total"] == 0

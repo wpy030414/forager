@@ -266,7 +266,7 @@ export function TreePage() {
   const total = tree?.total ?? { discovered: 0, done: 0 }
 
   return (
-    <div className="space-y-6 px-8 pb-24 pt-6 xl:px-12">
+    <div className="space-y-6 px-8 pb-24 pt-28 xl:px-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">线索</h1>

@@ -96,6 +96,40 @@ async def list_items(
     return [_row_to_item(row) for row in rows]
 
 
+@router.get("/continue")
+async def continue_watching(request: Request, limit: int = 12) -> list[dict[str, Any]]:
+    """继续播放：有进度且未看完的库条目，按最近播放排序。"""
+    size = min(max(int(limit or 12), 1), 50)
+    rows = request.app.state.db.query(
+        "SELECT l.*, p.position_ms, p.duration_ms, p.updated_at AS progress_at "
+        "FROM progress p JOIN library l ON l.key = p.key "
+        "WHERE p.position_ms > 0 "
+        "  AND (p.duration_ms IS NULL OR p.position_ms < p.duration_ms - 10000) "
+        "ORDER BY p.updated_at DESC LIMIT ?",
+        (size,),
+    )
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = _row_to_item(row)
+        item["progress"] = {
+            "positionMs": row["position_ms"],
+            "durationMs": row["duration_ms"],
+            "updatedAt": row["progress_at"],
+        }
+        items.append(item)
+    return items
+
+
+@router.get("/recent")
+async def recent_items(request: Request, limit: int = 12) -> list[dict[str, Any]]:
+    """最近入库：首页推荐位用，避免全量元数据回传。"""
+    size = min(max(int(limit or 12), 1), 50)
+    rows = request.app.state.db.query(
+        "SELECT * FROM library ORDER BY downloaded_at DESC LIMIT ?", (size,)
+    )
+    return [_row_to_item(row) for row in rows]
+
+
 @router.get("/facets")
 async def facets(request: Request) -> dict[str, Any]:
     """库的分面：来源与分区（分区来自源站，不是 tag）。"""

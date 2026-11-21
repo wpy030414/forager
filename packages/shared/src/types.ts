@@ -94,9 +94,22 @@ export interface LibraryItem {
   sizeBytes: number
   /** 下载时间 ISO 字符串 */
   downloadedAt: string
+  /** 源站分区（入库时从详情快照提取） */
+  category?: string | null
 }
 
 export type DownloadStatus = 'queued' | 'downloading' | 'done' | 'error'
+
+export interface PlayProgress {
+  positionMs: number
+  durationMs: number | null
+  updatedAt: string
+}
+
+/** 首页「继续播放」条目：库记录 + 播放进度 */
+export interface ContinueItem extends LibraryItem {
+  progress: PlayProgress
+}
 
 export interface DownloadJob {
   key: string

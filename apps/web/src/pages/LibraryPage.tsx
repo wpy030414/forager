@@ -10,12 +10,14 @@ import { Focusable } from '@/components/Focusable'
  */
 export function LibraryPage({
   onPlay,
+  initialSource,
 }: {
   onPlay: (t: { source: string; id: string; title: string; url: string; startAtMs: number }) => void
+  initialSource?: string
 }) {
   const [items, setItems] = useState<LibraryItem[]>([])
   const [facets, setFacets] = useState<Facets>()
-  const [source, setSource] = useState('')
+  const [source, setSource] = useState(initialSource ?? '')
   const [category, setCategory] = useState('')
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(true)
@@ -55,7 +57,7 @@ export function LibraryPage({
   }
 
   return (
-    <div className="space-y-8 px-12 pb-24 pt-6">
+    <div className="space-y-8 px-12 pb-24 pt-28">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">库</h1>

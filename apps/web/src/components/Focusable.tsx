@@ -11,6 +11,10 @@ interface FocusableProps {
   className?: string
   /** 遥控器确认键 / Enter */
   onEnter?: () => void
+  /** 获焦时回调：首页背景联动、横向列表滚动等 */
+  onFocus?: () => void
+  /** 失焦时回调 */
+  onBlur?: () => void
   /** 方向键在获焦组件上按下（自定义移动行为时用） */
   onArrow?: (dir: 'up' | 'down' | 'left' | 'right') => void
   focusKey?: string
@@ -22,6 +26,8 @@ export function Focusable({
   children,
   className,
   onEnter,
+  onFocus,
+  onBlur,
   onArrow,
   focusKey,
   scale = 'md',
@@ -29,6 +35,8 @@ export function Focusable({
   const { ref, focused } = useFocusable({
     focusKey,
     onEnterPress: onEnter,
+    onFocus: () => onFocus?.(),
+    onBlur: () => onBlur?.(),
     onArrowPress: (dir) => {
       onArrow?.(dir as 'up' | 'down' | 'left' | 'right')
       return true

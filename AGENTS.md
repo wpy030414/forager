@@ -24,7 +24,7 @@ forager 是自托管媒体采集与归档服务（Python 后端 + tvOS 风格 SP
   `transport/`（curl + DoH）、`sources/`（适配器）、`library/`（下载与缓存）、
   `subs/`（线索调度）、`api/`（路由）
 - `apps/server/tests/` — pytest
-- `apps/web/src/` — React SPA（库 / 线索 / 设置三页，空间导航、tvOS 视觉）
+- `apps/web/src/` — React SPA（首页 / 库 / 线索 / 设置，空间导航、tvOS 视觉）
 - `packages/shared/src/` — 前端共享类型（历史命名，仍为 `@libre-tv/shared`）
 - `docs/` — ARCHITECTURE / DECISIONS / PORT-NOTES / legacy（历史设计）
 - `Dockerfile` / `compose.yaml` — 多阶段镜像与编排

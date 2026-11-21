@@ -3,13 +3,18 @@
 自托管的媒体采集与归档服务：**按规则持续发现、下载、归档，并按来源与分区分面浏览**。
 
 - 后端：Python 3.12+ / FastAPI / SQLite / asyncio，除系统 `curl` 外无外部服务
-- 前端：tvOS 风格 SPA（React 19），三个页面：**库 / 线索 / 设置**
+- 前端：tvOS 风格 SPA（React 19），四个页面：**首页 / 库 / 线索 / 设置**
 - 部署：单容器，`docker compose up -d` 即用
 
 > 本仓库前身是 `libre-tv`（Hono + TS 全栈）。forager 用 Python 重写后端并保持接口契约，
 > 旧的 TS 后端已移除，历史设计记录在 `docs/legacy/`。
 
-## 三个页面
+## 四个页面
+
+### 首页
+tvOS 流式墙：右上角时间与设置，从上到下依次是「继续播放 / 为你推荐」双货架、
+平台入口（哔哩哔哩、Hanime1；Pixiv / CCTV 待接入）与线索速览。
+获焦卡片会推动背景换图、横向货架自动居中，确认键直接续看或进入对应平台。
 
 ### 库
 只看本地已归档内容，按**来源**与**源站分区**（不是 tag）筛选：点来源→再点分区，两级收敛。
@@ -99,6 +104,8 @@ apps/server/forager/
 | GET | `/api/sources/:id/list` `search` `detail/:vid` | 源站浏览 / 搜索 / 详情 |
 | GET | `/api/sources/:id/stream` `image` | 流代理（Range）/ 图片代理（白名单） |
 | GET | `/api/library/items?source=&category=&q=` | 本地库（支持分面筛选） |
+| GET | `/api/library/continue` | 继续播放（有进度且未看完） |
+| GET | `/api/library/recent` | 最近入库（首页推荐） |
 | GET | `/api/library/facets` | 来源与分区的计数分面 |
 | GET | `/api/library/play/:source/:id` | 播放来源解析 |
 | GET/PUT | `/api/library/mode` `progress/:source/:id` | 离线开关 / 续看进度 |
