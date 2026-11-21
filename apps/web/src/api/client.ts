@@ -141,6 +141,7 @@ export const api = {
 
   // ---- 本地库 / 双播 ----
   library: () => get<LibraryItem[]>('/api/library/items'),
+  libraryKeys: () => get<string[]>('/api/library/keys'),
   mode: () => get<{ offline: boolean }>('/api/library/mode'),
   setMode: (offline: boolean) =>
     send<{ offline: boolean }>('/api/library/mode', 'PUT', { offline }),
@@ -170,8 +171,10 @@ export const api = {
   },
   facets: () => get<Facets>('/api/library/facets'),
 
-  // ---- 线索树 ----
+  // ---- 线索 ----
   tree: () => get<TreeResponse>('/api/tree'),
+  browseNode: (id: number, page = 1) =>
+    get<Page<VideoSummary>>(`/api/tree/nodes/${id}/items?page=${page}`),
   createNode: (body: {
     source: string
     kind: string

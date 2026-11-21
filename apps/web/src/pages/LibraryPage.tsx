@@ -125,7 +125,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
     <div className="rounded-3xl border border-dashed border-white/10 px-6 py-16 text-center">
       <p className="text-sm text-zinc-400">{filtered ? '当前筛选下没有内容' : '库还是空的'}</p>
       <p className="mt-2 text-xs text-zinc-500">
-        去「线索树」加一条线索，或在已有线索上点「同步」开始采集
+        去「线索」加一条线索，或在已有线索上浏览/同步开始采集
       </p>
     </div>
   )

@@ -1,8 +1,11 @@
+import type { DownloadJob, VideoDetail, VideoEpisode, VideoSummary } from '@libre-tv/shared/types'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { api } from '@/api/client'
+import { setFocus } from '@noriginmedia/norigin-spatial-navigation'
+import { ChevronDown, ChevronRight, Download, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { api, fmtBytes, fmtDuration } from '@/api/client'
 import type { TreeGroup, TreeNode, TreeResponse } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
+import { PosterCard } from '@/components/PosterCard'
 
 const KIND_LABELS: Record<string, string> = {
   query: '关键词',
@@ -23,16 +26,31 @@ const INTERVALS = [
   { value: 86400, label: '24 小时' },
 ]
 
+const jobKey = (source: string, id: string) => `${source}:${id}`
+
 /**
- * 线索树：每条线索 = 一条持续发现规则。
- * 收藏/关注类线索会在同步时自动展开成「发布者」子线索。
+ * 线索：每条线索 = 一条持续发现规则。
+ * 左侧选线索，右侧浏览源站在线内容；点视频按最高清晰度入库，
+ * 系列（番剧季度 / UGC 分P）可继续下探，逐集选择或全部下载。
  */
 export function TreePage() {
   const [tree, setTree] = useState<TreeResponse>()
   const [error, setError] = useState<string>()
   const [busyId, setBusyId] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [items, setItems] = useState<VideoSummary[]>([])
+  const [browsePage, setBrowsePage] = useState(1)
+  const [browseHasMore, setBrowseHasMore] = useState(false)
+  const [browseBusy, setBrowseBusy] = useState(false)
+  const [browseError, setBrowseError] = useState<string>()
+
+  const [picker, setPicker] = useState<VideoDetail>()
+  const [jobs, setJobs] = useState<DownloadJob[]>([])
+  const [libraryKeys, setLibraryKeys] = useState<Set<string>>(new Set())
+  const [notice, setNotice] = useState<string>()
+
+  const loadTree = useCallback(async () => {
     try {
       setTree(await api.tree())
       setError(undefined)
@@ -41,21 +59,100 @@ export function TreePage() {
     }
   }, [])
 
+  const loadJobs = useCallback(async () => {
+    try {
+      setJobs(await api.downloads())
+    } catch {
+      /* 状态条静默 */
+    }
+  }, [])
+
+  const loadLibrary = useCallback(async () => {
+    try {
+      setLibraryKeys(new Set(await api.libraryKeys()))
+    } catch {
+      /* 状态条静默 */
+    }
+  }, [])
+
   useEffect(() => {
-    void load()
-    const id = setInterval(() => void load(), 5000)
+    void loadTree()
+    const id = setInterval(() => void loadTree(), 5000)
     return () => clearInterval(id)
-  }, [load])
+  }, [loadTree])
+
+  useEffect(() => {
+    void loadJobs()
+    const id = setInterval(() => void loadJobs(), 2000)
+    return () => clearInterval(id)
+  }, [loadJobs])
+
+  useEffect(() => {
+    void loadLibrary()
+    const id = setInterval(() => void loadLibrary(), 4000)
+    return () => clearInterval(id)
+  }, [loadLibrary])
+
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(undefined), 4000)
+    return () => clearTimeout(id)
+  }, [notice])
+
+  const selected = useMemo(() => findNode(tree, selectedId), [tree, selectedId])
+
+  useEffect(() => {
+    if (selectedId !== null && tree && !findNode(tree, selectedId)) {
+      setSelectedId(null)
+      setItems([])
+    }
+  }, [tree, selectedId])
+
+  const jobsByKey = useMemo(() => new Map(jobs.map((job) => [job.key, job])), [jobs])
+
+  const loadBrowse = useCallback(async (node: TreeNode, page = 1) => {
+    setBrowseBusy(true)
+    setBrowseError(undefined)
+    try {
+      const res = await api.browseNode(node.id, page)
+      setItems((prev) => (page === 1 ? res.items : [...prev, ...res.items]))
+      setBrowsePage(res.page)
+      setBrowseHasMore(res.hasMore)
+    } catch (e) {
+      setBrowseError((e as Error).message)
+    } finally {
+      setBrowseBusy(false)
+    }
+  }, [])
+
+  const selectNode = (node: TreeNode) => {
+    if (EXPAND_KINDS.has(node.kind)) {
+      setNotice('收藏/关注线索会在同步时自动展开成发布者线索')
+      return
+    }
+    if (selectedId === node.id) {
+      setSelectedId(null)
+      setItems([])
+      return
+    }
+    setSelectedId(node.id)
+    setItems([])
+    setBrowseHasMore(false)
+    setBrowseError(undefined)
+    void loadBrowse(node, 1)
+  }
 
   const sync = async (node: TreeNode) => {
     setBusyId(node.id)
     try {
-      await api.syncNode(node.id)
+      const res = await api.syncNode(node.id)
+      setNotice(`同步完成，新入队 ${res.enqueued} 条`)
     } catch (e) {
-      setError((e as Error).message)
+      setNotice((e as Error).message)
     } finally {
       setBusyId(null)
-      void load()
+      void loadTree()
+      void loadJobs()
     }
   }
 
@@ -63,23 +160,118 @@ export function TreePage() {
     setBusyId(node.id)
     try {
       await api.deleteNode(node.id)
+      setNotice(`已删除线索「${node.title}」`)
+      if (selectedId === node.id) {
+        setSelectedId(null)
+        setItems([])
+      }
     } catch (e) {
-      setError((e as Error).message)
+      setNotice((e as Error).message)
     } finally {
       setBusyId(null)
-      void load()
+      void loadTree()
+    }
+  }
+
+  const openOnline = async (video: VideoSummary) => {
+    try {
+      if (libraryKeys.has(jobKey(video.source, video.id))) {
+        setNotice(`已在本地库：${video.title}`)
+        return
+      }
+      const detail = await api.detail(video.source, video.id)
+      const episodes = detail.episodes ?? []
+      if (video.kind === 'series' && episodes.length === 0) {
+        setNotice('该系列暂无已上线剧集')
+        return
+      }
+      // 季度（kind=series）与 UGC 多P 先下探；PGC 单集本身就是一个最小下载单元
+      const expandable =
+        episodes.length > 0 &&
+        (video.kind === 'series' || (!video.id.startsWith('ep') && episodes.length > 1))
+      if (expandable) {
+        setPicker(detail)
+        return
+      }
+      await api.download(video.source, video.id)
+      setNotice(`已加入下载（最高清晰度）：${video.title}`)
+      void loadJobs()
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
+  const downloadEpisode = async (source: string, episode: VideoEpisode) => {
+    try {
+      await api.download(source, episode.id)
+      setNotice(`已加入下载：${episode.title}`)
+      void loadJobs()
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
+  const downloadAll = async (source: string, episodes: VideoEpisode[]) => {
+    let ok = 0
+    let fail = 0
+    for (const episode of episodes) {
+      try {
+        await api.download(source, episode.id)
+        ok += 1
+      } catch {
+        fail += 1
+      }
+    }
+    setNotice(`已加入 ${ok} 集${fail ? `，${fail} 集失败` : ''}`)
+    void loadJobs()
+  }
+
+  const retryJob = async (job: DownloadJob) => {
+    try {
+      await api.download(job.source, job.id, job.quality === 'auto' ? undefined : job.quality)
+      setNotice(`已重新加入下载：${job.title || job.key}`)
+      void loadJobs()
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
+  const cancelJob = async (job: DownloadJob) => {
+    try {
+      await api.cancelDownload(job.key)
+      setNotice('已取消下载')
+      void loadJobs()
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
+  useEffect(() => {
+    if (!picker) return
+    const id = setTimeout(() => {
+      void setFocus('PICKER-ALL').catch(() => {})
+    }, 80)
+    return () => clearTimeout(id)
+  }, [picker])
+
+  const closePicker = () => {
+    setPicker(undefined)
+    if (selectedId !== null) {
+      setTimeout(() => {
+        void setFocus(`NODE-${selectedId}`).catch(() => {})
+      }, 60)
     }
   }
 
   const total = tree?.total ?? { discovered: 0, done: 0 }
 
   return (
-    <div className="space-y-8 px-12 pb-24 pt-6">
+    <div className="space-y-6 px-8 pb-24 pt-6 xl:px-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">线索树</h1>
+          <h1 className="text-2xl font-bold text-white">线索</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            按规则持续发现新内容 · 总进度 {total.done}/{total.discovered}
+            选一条线索浏览在线内容 · 点视频按最高清晰度入库 · 总进度 {total.done}/{total.discovered}
           </p>
         </div>
         <div className="w-64">
@@ -89,50 +281,584 @@ export function TreePage() {
 
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
-      {tree ? <CreateForm groups={tree.sources} onCreated={load} /> : null}
+      {tree ? <CreateForm groups={tree.sources} onCreated={loadTree} /> : null}
 
-      <div className="space-y-10">
-        {(tree?.sources ?? []).map((group) => (
-          <section key={group.source} className="space-y-4">
-            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-white">{group.name}</h2>
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-zinc-400">
-                  {group.nodes.length} 条线索
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-zinc-400">
-                <span>
-                  {group.total.done}/{group.total.discovered}
-                </span>
-                <div className="w-40">
-                  <Bar done={group.total.done} discovered={group.total.discovered} />
+      <DownloadPanel
+        jobs={jobs}
+        onRetry={(job) => void retryJob(job)}
+        onCancel={(job) => void cancelJob(job)}
+      />
+
+      <div className="grid gap-8 lg:grid-cols-[minmax(300px,380px)_1fr]">
+        <aside className="space-y-6">
+          {(tree?.sources ?? []).map((group) => (
+            <SourceGroup
+              key={group.source}
+              group={group}
+              selectedId={selectedId}
+              busyId={busyId}
+              onSelect={selectNode}
+              onSync={(node) => void sync(node)}
+              onDelete={(node) => void remove(node)}
+            />
+          ))}
+        </aside>
+
+        <BrowsePanel
+          node={selected}
+          items={items}
+          busy={browseBusy}
+          error={browseError}
+          hasMore={browseHasMore}
+          page={browsePage}
+          jobsByKey={jobsByKey}
+          libraryKeys={libraryKeys}
+          onRefresh={() => selected && void loadBrowse(selected, 1)}
+          onMore={() => selected && void loadBrowse(selected, browsePage + 1)}
+          onOpen={(video) => void openOnline(video)}
+        />
+      </div>
+
+      {picker ? (
+        <EpisodePicker
+          key={picker.id}
+          detail={picker}
+          jobsByKey={jobsByKey}
+          libraryKeys={libraryKeys}
+          onClose={closePicker}
+          onDownload={(episode) => void downloadEpisode(picker.source, episode)}
+          onDownloadAll={(episodes) => downloadAll(picker.source, episodes)}
+        />
+      ) : null}
+
+      {notice ? (
+        <div className="fixed bottom-10 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-white px-5 py-2 text-sm font-medium text-black shadow-2xl">
+          {notice}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function SourceGroup({
+  group,
+  selectedId,
+  busyId,
+  onSelect,
+  onSync,
+  onDelete,
+}: {
+  group: TreeGroup
+  selectedId: number | null
+  busyId: number | null
+  onSelect: (node: TreeNode) => void
+  onSync: (node: TreeNode) => void
+  onDelete: (node: TreeNode) => void
+}) {
+  return (
+    <section className="space-y-3">
+      <header className="flex items-center justify-between border-b border-white/5 pb-2">
+        <h2 className="text-base font-semibold text-white">{group.name}</h2>
+        <span className="text-[11px] text-zinc-500">
+          {group.nodes.length} 条线索 · {group.total.done}/{group.total.discovered}
+        </span>
+      </header>
+      {group.nodes.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-[11px] text-zinc-500">
+          还没有线索
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {group.nodes.map((node) => (
+            <RuleNode
+              key={node.id}
+              node={node}
+              depth={0}
+              selectedId={selectedId}
+              busyId={busyId}
+              onSelect={onSelect}
+              onSync={onSync}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function RuleNode({
+  node,
+  depth,
+  selectedId,
+  busyId,
+  onSelect,
+  onSync,
+  onDelete,
+}: {
+  node: TreeNode
+  depth: number
+  selectedId: number | null
+  busyId: number | null
+  onSelect: (node: TreeNode) => void
+  onSync: (node: TreeNode) => void
+  onDelete: (node: TreeNode) => void
+}) {
+  const total = node.total ?? { discovered: node.discovered, done: node.done }
+  const busy = busyId === node.id
+  const selected = selectedId === node.id
+
+  return (
+    <div style={{ marginLeft: depth * 14 }} className="space-y-1.5">
+      <Focusable focusKey={`NODE-${node.id}`} onEnter={() => onSelect(node)} scale="sm">
+        <div
+          className={[
+            'rounded-2xl p-3 ring-1 transition',
+            selected
+              ? 'bg-emerald-400/10 ring-emerald-400/60'
+              : 'bg-white/[0.04] ring-white/5',
+          ].join(' ')}
+        >
+          <div className="flex items-center gap-2">
+            <StatusDot status={node.status} title={node.lastError ?? undefined} />
+            <span className="truncate text-sm font-semibold text-white">{node.title}</span>
+            <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-zinc-400">
+              {KIND_LABELS[node.kind] ?? node.kind}
+            </span>
+            {node.quality ? (
+              <span className="shrink-0 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] text-emerald-300">
+                {node.quality}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1">
+              <Bar done={total.done} discovered={total.discovered} />
+            </div>
+            <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">
+              {total.done}/{total.discovered}
+            </span>
+          </div>
+          {node.lastError ? (
+            <p className="mt-1 line-clamp-1 text-[10px] text-amber-300/80">{node.lastError}</p>
+          ) : null}
+        </div>
+      </Focusable>
+
+      <div className="flex items-center gap-2 pl-1">
+        <Focusable scale="sm" onEnter={busy ? undefined : () => onSync(node)}>
+          <span className="flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[10px] text-white">
+            <RefreshCw className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`} />
+            同步
+          </span>
+        </Focusable>
+        <Focusable scale="sm" onEnter={busy ? undefined : () => onDelete(node)}>
+          <span className="flex items-center gap-1 rounded-full bg-white/5 px-2.5 py-1 text-[10px] text-zinc-400">
+            <Trash2 className="h-3 w-3" />
+            删除
+          </span>
+        </Focusable>
+        {node.pending > 0 ? (
+          <span className="text-[10px] text-amber-300/70">待下载 {node.pending}</span>
+        ) : null}
+      </div>
+
+      {node.children.map((child) => (
+        <RuleNode
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          selectedId={selectedId}
+          busyId={busyId}
+          onSelect={onSelect}
+          onSync={onSync}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  )
+}
+
+function BrowsePanel({
+  node,
+  items,
+  busy,
+  error,
+  hasMore,
+  page,
+  jobsByKey,
+  libraryKeys,
+  onRefresh,
+  onMore,
+  onOpen,
+}: {
+  node?: TreeNode
+  items: VideoSummary[]
+  busy: boolean
+  error?: string
+  hasMore: boolean
+  page: number
+  jobsByKey: Map<string, DownloadJob>
+  libraryKeys: Set<string>
+  onRefresh: () => void
+  onMore: () => void
+  onOpen: (video: VideoSummary) => void
+}) {
+  if (!node) {
+    return (
+      <section className="flex min-h-[320px] items-center justify-center rounded-3xl border border-dashed border-white/10 px-6 text-center">
+        <div>
+          <p className="text-sm text-zinc-400">从左侧选一条线索</p>
+          <p className="mt-2 text-xs text-zinc-500">
+            浏览该线索对应的源站在线内容；点视频即按最高清晰度入库
+          </p>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="min-h-[320px] space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">{node.title}</h2>
+          <p className="mt-0.5 text-[11px] text-zinc-500">
+            {KIND_LABELS[node.kind] ?? node.kind} · 已有 {items.length} 条
+            {busy ? ' · 读取中…' : ''}
+          </p>
+        </div>
+        <Focusable scale="sm" onEnter={busy ? undefined : onRefresh}>
+          <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[11px] text-white">
+            <RefreshCw className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`} />
+            刷新
+          </span>
+        </Focusable>
+      </header>
+
+      {error ? <p className="text-sm text-amber-300">{error}</p> : null}
+
+      {busy && items.length === 0 ? (
+        <p className="py-16 text-center text-sm text-zinc-500">读取中…</p>
+      ) : items.length === 0 ? (
+        <p className="rounded-3xl border border-dashed border-white/10 py-16 text-center text-sm text-zinc-500">
+          这条线索暂时没有可浏览的内容
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          {items.map((video, index) => (
+            <PosterCard
+              key={`${video.source}:${video.id}`}
+              fluid
+              video={video}
+              job={jobsByKey.get(jobKey(video.source, video.id))}
+              inLibrary={libraryKeys.has(jobKey(video.source, video.id))}
+              focusKey={`BROWSE-${node.id}-${index}`}
+              onSelect={() => onOpen(video)}
+            />
+          ))}
+        </div>
+      )}
+
+      {hasMore ? (
+        <div className="flex justify-center pt-2">
+          <Focusable scale="sm" onEnter={busy ? undefined : onMore}>
+            <span className="rounded-full bg-white/10 px-5 py-2 text-xs font-medium text-white">
+              {busy ? '读取中…' : `加载更多（第 ${page + 1} 页）`}
+            </span>
+          </Focusable>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function DownloadPanel({
+  jobs,
+  onRetry,
+  onCancel,
+}: {
+  jobs: DownloadJob[]
+  onRetry: (job: DownloadJob) => void
+  onCancel: (job: DownloadJob) => void
+}) {
+  const [open, setOpen] = useState(false)
+  if (jobs.length === 0) return null
+
+  const active = jobs.filter((job) => job.status === 'downloading' || job.status === 'queued').length
+  const failed = jobs.filter((job) => job.status === 'error').length
+  const done = jobs.filter((job) => job.status === 'done').length
+
+  return (
+    <section className="rounded-3xl bg-white/[0.04] ring-1 ring-white/10">
+      <Focusable scale="sm" onEnter={() => setOpen((value) => !value)}>
+        <div className="flex items-center justify-between px-5 py-3">
+          <span className="flex items-center gap-2 text-sm font-semibold text-white">
+            {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            下载任务
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-normal text-zinc-300">
+              进行中 {active} · 已完成 {done} · 失败 {failed}
+            </span>
+          </span>
+          <span className="text-[11px] text-zinc-500">每个视频独立进度</span>
+        </div>
+      </Focusable>
+
+      {open ? (
+        <div className="max-h-[320px] overflow-y-auto border-t border-white/5">
+          {jobs.map((job) => (
+            <div
+              key={job.key}
+              className="flex items-center gap-3 border-b border-white/5 px-5 py-3 last:border-0"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-white">{job.title || job.key}</p>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                  <span>{job.source}</span>
+                  <span>· {job.quality}</span>
+                  {job.fromLibrary ? <span className="text-emerald-300">· 本地已有</span> : null}
+                  {job.qualityFallback ? (
+                    <span className="text-amber-300">· 已降级</span>
+                  ) : null}
+                  <span>
+                    · {fmtBytes(job.receivedBytes)}
+                    {job.totalBytes ? ` / ${fmtBytes(job.totalBytes)}` : ''}
+                  </span>
                 </div>
-              </div>
-            </header>
-
-            {group.nodes.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-white/10 px-5 py-8 text-center text-xs text-zinc-500">
-                还没有线索。在上面选「{group.name}」，挑一种类型开始。
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {group.nodes.map((node) => (
-                  <NodeRow
-                    key={node.id}
-                    node={node}
-                    depth={0}
-                    busyId={busyId}
-                    onSync={sync}
-                    onDelete={remove}
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={[
+                      'h-full rounded-full transition-all duration-300',
+                      job.status === 'done'
+                        ? 'bg-emerald-400'
+                        : job.status === 'error'
+                          ? 'bg-amber-400'
+                          : 'bg-white',
+                    ].join(' ')}
+                    style={{ width: `${job.status === 'done' ? 100 : job.progress}%` }}
                   />
-                ))}
+                </div>
+                {job.error ? (
+                  <p className="mt-1 line-clamp-1 text-[11px] text-amber-300/90">{job.error}</p>
+                ) : null}
               </div>
-            )}
-          </section>
-        ))}
+
+              <StatusChip job={job} />
+
+              {job.status === 'error' ? (
+                <Focusable scale="sm" onEnter={() => onRetry(job)}>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
+                    重试
+                  </span>
+                </Focusable>
+              ) : job.status === 'queued' || job.status === 'downloading' ? (
+                <Focusable scale="sm" onEnter={() => onCancel(job)}>
+                  <span className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-zinc-400">
+                    取消
+                  </span>
+                </Focusable>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function EpisodePicker({
+  detail,
+  jobsByKey,
+  libraryKeys,
+  onClose,
+  onDownload,
+  onDownloadAll,
+}: {
+  detail: VideoDetail
+  jobsByKey: Map<string, DownloadJob>
+  libraryKeys: Set<string>
+  onClose: () => void
+  onDownload: (episode: VideoEpisode) => void
+  onDownloadAll: (episodes: VideoEpisode[]) => Promise<void>
+}) {
+  const [confirmAll, setConfirmAll] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [visible, setVisible] = useState(60)
+  const episodes = detail.episodes ?? []
+
+  const jobFor = (episode: VideoEpisode) => jobsByKey.get(jobKey(detail.source, episode.id))
+  const inLibrary = (episode: VideoEpisode) =>
+    libraryKeys.has(jobKey(detail.source, episode.id))
+  const pending = episodes.filter((episode) => {
+    const job = jobFor(episode)
+    if (inLibrary(episode)) return false
+    return !job || (job.status !== 'done' && job.status !== 'downloading' && job.status !== 'queued')
+  })
+
+  useEffect(() => {
+    if (!confirmAll) return
+    const id = setTimeout(() => setConfirmAll(false), 4000)
+    return () => clearTimeout(id)
+  }, [confirmAll])
+
+  const downloadAll = async () => {
+    if (pending.length === 0) return
+    if (!confirmAll) {
+      setConfirmAll(true)
+      return
+    }
+    setConfirmAll(false)
+    setBusy(true)
+    try {
+      await onDownloadAll(pending)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm md:p-8"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-zinc-950 ring-1 ring-white/15"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold text-white">{detail.title}</h2>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              共 {episodes.length} 集 · 点单集下载，或一次加入全部 · 均按最高清晰度
+            </p>
+          </div>
+          <Focusable focusKey="PICKER-CLOSE" scale="sm" onEnter={onClose}>
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white">
+              <X className="h-4 w-4" />
+            </span>
+          </Focusable>
+        </header>
+
+        <div className="flex items-center justify-between gap-4 border-b border-white/5 px-6 py-3">
+          <Focusable focusKey="PICKER-ALL" scale="sm" onEnter={busy ? undefined : () => void downloadAll()}>
+            <span
+              className={[
+                'flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold',
+                pending.length === 0
+                  ? 'bg-white/10 text-zinc-500'
+                  : confirmAll
+                    ? 'bg-amber-400 text-black'
+                    : 'bg-white text-black',
+              ].join(' ')}
+            >
+              <Download className="h-3.5 w-3.5" />
+              {pending.length === 0
+                ? '全部已入库'
+                : busy
+                  ? '正在加入…'
+                  : confirmAll
+                    ? `确认全部下载 ${pending.length} 集`
+                    : `全部下载（${pending.length} 集）`}
+            </span>
+          </Focusable>
+          <span className="text-[11px] text-zinc-500">
+            每个视频独立排队与进度
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-2">
+          {episodes.slice(0, visible).map((episode) => {
+            const job = jobFor(episode)
+            const local = inLibrary(episode)
+            const locked =
+              local ||
+              job?.status === 'done' ||
+              job?.status === 'downloading' ||
+              job?.status === 'queued'
+            return (
+              <Focusable
+                key={episode.id}
+                focusKey={`PICK-${episode.id}`}
+                scale="sm"
+                onEnter={locked ? undefined : () => onDownload(episode)}
+              >
+                <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition hover:bg-white/5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-white">{episode.title}</p>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                      {episode.durationSec ? <span>{fmtDuration(episode.durationSec)}</span> : null}
+                      {job?.status === 'downloading' ? (
+                        <span>
+                          {job.progress}% · {fmtBytes(job.receivedBytes)}
+                        </span>
+                      ) : null}
+                      {job?.error ? (
+                        <span className="truncate text-amber-300/90">{job.error}</span>
+                      ) : null}
+                    </div>
+                    {job && job.status !== 'done' ? (
+                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={[
+                            'h-full rounded-full transition-all duration-300',
+                            job.status === 'error' ? 'bg-amber-400' : 'bg-emerald-400',
+                          ].join(' ')}
+                          style={{ width: `${job.progress}%` }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                  {job ? <StatusChip job={job} /> : local ? (
+                    <span className="shrink-0 rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] text-emerald-300">
+                      已入库
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
+                      下载
+                    </span>
+                  )}
+                </div>
+              </Focusable>
+            )
+          })}
+
+          {visible < episodes.length ? (
+            <div className="flex justify-center py-3">
+              <Focusable scale="sm" onEnter={() => setVisible((value) => value + 100)}>
+                <span className="rounded-full bg-white/10 px-4 py-1.5 text-[11px] text-white">
+                  显示更多（还有 {episodes.length - visible} 集）
+                </span>
+              </Focusable>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
+  )
+}
+
+function StatusChip({ job }: { job: DownloadJob }) {
+  const label =
+    job.status === 'downloading'
+      ? `${job.progress}%`
+      : job.status === 'queued'
+        ? '排队中'
+        : job.status === 'done'
+          ? job.fromLibrary
+            ? '已入库'
+            : '已完成'
+          : '重试'
+  const className =
+    job.status === 'done'
+      ? 'bg-emerald-400/15 text-emerald-300'
+      : job.status === 'error'
+        ? 'bg-amber-400/15 text-amber-300'
+        : 'bg-white/10 text-zinc-300'
+  return (
+    <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] tabular-nums ${className}`}>
+      {label}
+    </span>
   )
 }
 
@@ -151,13 +877,13 @@ function CreateForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
 
-  const group = useMemo(() => groups.find((g) => g.source === source), [groups, source])
+  const group = useMemo(() => groups.find((item) => item.source === source), [groups, source])
   const kinds = group?.kinds ?? []
   const needsValue = !EXPAND_KINDS.has(kind)
   const categoryOptions = kind === 'partition' ? (group?.categories ?? []) : []
 
   const pickSource = (next: string) => {
-    const target = groups.find((g) => g.source === next)
+    const target = groups.find((item) => item.source === next)
     setSource(next)
     setKind(target?.kinds[0] ?? 'query')
     setValue('')
@@ -183,22 +909,22 @@ function CreateForm({
   }
 
   return (
-    <div className="rounded-3xl bg-white/[0.06] p-6 ring-1 ring-white/10">
+    <div className="rounded-3xl bg-white/[0.06] p-5 ring-1 ring-white/10">
       <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
         <Plus className="h-4 w-4" />
         新建线索
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <Field label="来源">
           <select
             value={source}
             onChange={(e) => pickSource(e.target.value)}
             className={inputClass}
           >
-            {groups.map((g) => (
-              <option key={g.source} value={g.source}>
-                {g.name}
+            {groups.map((item) => (
+              <option key={item.source} value={item.source}>
+                {item.name}
               </option>
             ))}
           </select>
@@ -234,9 +960,9 @@ function CreateForm({
                 className={inputClass}
               >
                 <option value="">选择分区…</option>
-                {categoryOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+                {categoryOptions.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
                   </option>
                 ))}
               </select>
@@ -263,9 +989,9 @@ function CreateForm({
             onChange={(e) => setIntervalSec(Number(e.target.value))}
             className={inputClass}
           >
-            {INTERVALS.map((i) => (
-              <option key={i.value} value={i.value}>
-                {i.label}
+            {INTERVALS.map((interval) => (
+              <option key={interval.value} value={interval.value}>
+                {interval.label}
               </option>
             ))}
           </select>
@@ -278,9 +1004,9 @@ function CreateForm({
             className={inputClass}
           >
             <option value="">跟随默认</option>
-            {(group?.qualityOptions ?? []).map((q) => (
-              <option key={q} value={q}>
-                {q}
+            {(group?.qualityOptions ?? []).map((option) => (
+              <option key={option} value={option}>
+                {option}
               </option>
             ))}
           </select>
@@ -296,92 +1022,6 @@ function CreateForm({
           </span>
         </Focusable>
       </div>
-    </div>
-  )
-}
-
-function NodeRow({
-  node,
-  depth,
-  busyId,
-  onSync,
-  onDelete,
-}: {
-  node: TreeNode
-  depth: number
-  busyId: number | null
-  onSync: (node: TreeNode) => void
-  onDelete: (node: TreeNode) => void
-}) {
-  const total = node.total ?? { discovered: node.discovered, done: node.done }
-  const busy = busyId === node.id
-
-  return (
-    <div style={{ marginLeft: depth * 24 }} className="space-y-2">
-      <div className="rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <StatusDot status={node.status} title={node.lastError ?? undefined} />
-            <span className="truncate text-sm font-semibold text-white">{node.title}</span>
-            <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-zinc-400">
-              {KIND_LABELS[node.kind] ?? node.kind}
-            </span>
-            {node.quality ? (
-              <span className="shrink-0 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] text-emerald-300">
-                {node.quality}
-              </span>
-            ) : null}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Focusable scale="sm" onEnter={busy ? undefined : () => onSync(node)}>
-              <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white">
-                <RefreshCw className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`} />
-                同步
-              </span>
-            </Focusable>
-            <Focusable scale="sm" onEnter={busy ? undefined : () => onDelete(node)}>
-              <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1.5 text-[11px] font-medium text-zinc-400">
-                <Trash2 className="h-3 w-3" />
-                删除
-              </span>
-            </Focusable>
-          </div>
-        </div>
-
-        <div className="mt-3 flex items-center gap-3">
-          <div className="flex-1">
-            <Bar done={total.done} discovered={total.discovered} />
-          </div>
-          <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
-            {total.done}/{total.discovered}
-          </span>
-        </div>
-
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
-          <span>每 {Math.round(node.intervalSec / 60)} 分钟巡检</span>
-          <span>
-            最近：{node.lastRunAt ? node.lastRunAt.replace('T', ' ').slice(0, 16) : '未运行'}
-          </span>
-          {node.pending > 0 ? (
-            <span className="text-amber-300/80">待下载 {node.pending}</span>
-          ) : null}
-          {node.lastError ? (
-            <span className="text-amber-300/80">错误：{node.lastError}</span>
-          ) : null}
-        </div>
-      </div>
-
-      {node.children.map((child) => (
-        <NodeRow
-          key={child.id}
-          node={child}
-          depth={depth + 1}
-          busyId={busyId}
-          onSync={onSync}
-          onDelete={onDelete}
-        />
-      ))}
     </div>
   )
 }
@@ -411,6 +1051,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   )
+}
+
+function findNode(tree: TreeResponse | undefined, id: number | null): TreeNode | undefined {
+  if (!tree || id === null) return undefined
+  const walk = (nodes: TreeNode[]): TreeNode | undefined => {
+    for (const node of nodes) {
+      if (node.id === id) return node
+      const found = walk(node.children)
+      if (found) return found
+    }
+    return undefined
+  }
+  for (const group of tree.sources) {
+    const found = walk(group.nodes)
+    if (found) return found
+  }
+  return undefined
 }
 
 const inputClass =

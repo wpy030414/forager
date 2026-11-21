@@ -71,6 +71,10 @@ class Hanime1Source(BaseSource):
         items = self.parse_cards(html)
         return {"items": items, "page": page_no, "hasMore": len(items) > 0}
 
+    async def partition_items(self, value: str, page: int = 1) -> dict[str, Any]:
+        """hanime1 的分区就是站内 genre，直接复用最新上傳列表。"""
+        return await self.list(page, category=value or None)
+
     async def detail(self, vid: str) -> dict[str, Any]:
         clean = vid if vid.isdigit() else extract_vid(vid)
         if not clean:

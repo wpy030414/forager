@@ -1,4 +1,4 @@
-"""线索树接口：/api/tree/*"""
+"""线索接口：/api/tree/*"""
 
 from __future__ import annotations
 
@@ -12,6 +12,20 @@ router = APIRouter(prefix="/api/tree", tags=["tree"])
 @router.get("")
 async def get_tree(request: Request) -> dict[str, Any]:
     return request.app.state.scheduler.tree()
+
+
+@router.get("/nodes/{node_id}/items")
+async def node_items(request: Request, node_id: int, page: int = 1) -> dict[str, Any]:
+    """浏览该线索对应的在线内容（不写入发现记录、不自动下载）。"""
+    row = request.app.state.db.query_one(
+        "SELECT * FROM subscriptions WHERE id = ?", (node_id,)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="线索不存在")
+    source = request.app.state.sources.get(row["source"])
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"未注册的源：{row['source']}")
+    return await source.browse(row["kind"], row["value"], max(1, page))
 
 
 @router.post("/nodes", status_code=201)

@@ -62,6 +62,15 @@ async def set_mode(request: Request) -> dict[str, bool]:
 
 # ---- 本地库条目 ----
 
+@router.get("/keys")
+async def library_keys(request: Request) -> list[str]:
+    """轻量键列表：线索页用来判断哪些最小单元已经在库。"""
+    return [
+        row["key"]
+        for row in request.app.state.db.query("SELECT key FROM library ORDER BY downloaded_at DESC")
+    ]
+
+
 @router.get("/items")
 async def list_items(
     request: Request,

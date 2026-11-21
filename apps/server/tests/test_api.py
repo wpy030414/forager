@@ -77,6 +77,43 @@ def test_tree_rejects_unsupported_kind(tmp_path) -> None:
         assert "不支持" in res.json()["error"]
 
 
+def test_tree_browse_node_items(tmp_path, monkeypatch) -> None:
+    app = create_app(make_settings(tmp_path))
+    with TestClient(app) as client:
+        node = client.post(
+            "/api/tree/nodes",
+            json={"source": "bilibili", "kind": "partition", "value": "13"},
+        ).json()
+
+        async def fake_browse(kind: str, value: str, page: int = 1) -> dict:
+            assert (kind, value, page) == ("partition", "13", 1)
+            return {
+                "items": [{"id": "ss1", "source": "bilibili", "title": "某番", "kind": "series"}],
+                "page": 1,
+                "hasMore": False,
+            }
+
+        monkeypatch.setattr(app.state.sources["bilibili"], "browse", fake_browse)
+        res = client.get(f"/api/tree/nodes/{node['id']}/items")
+        assert res.status_code == 200
+        assert res.json()["items"][0]["kind"] == "series"
+
+        assert client.get("/api/tree/nodes/99999/items").status_code == 404
+
+
+def test_library_keys_is_lightweight_list(tmp_path) -> None:
+    app = create_app(make_settings(tmp_path))
+    with TestClient(app) as client:
+        assert client.get("/api/library/keys").json() == []
+        app.state.db.execute(
+            "INSERT INTO library (key, source, video_id, meta_json, quality, file_name, "
+            "cover_file, size_bytes, downloaded_at, category) "
+            "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+            ("hanime1:1", "hanime1", "1", "{}", "1080", "a.mp4", 1, "2026-01-01T00:00:00Z", "x"),
+        )
+        assert client.get("/api/library/keys").json() == ["hanime1:1"]
+
+
 def test_library_facets_and_filters(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.get("/api/library/facets").json()["total"] == 0

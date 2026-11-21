@@ -16,6 +16,18 @@ export interface VideoSummary {
   tags?: string[]
   /** 上传者 / 社团名 */
   uploader?: string
+  /** series：条目本身是季度/合集，需要先下探选集 */
+  kind?: 'video' | 'series'
+  /** 源站补充信息（如「更新至第1280话」） */
+  note?: string
+}
+
+export interface VideoEpisode {
+  /** 最小下载单元 ID（PGC 为 ep<n>，UGC 分P 为 BV...:p<n>） */
+  id: string
+  title: string
+  durationSec?: number
+  coverUrl?: string
 }
 
 export interface VideoQuality {
@@ -39,6 +51,10 @@ export interface VideoDetail extends VideoSummary {
   uploadDate?: string
   /** 相关推荐 */
   related?: VideoSummary[]
+  /** 分集 / 分P；长度大于 1 时前端先展开选集 */
+  episodes?: VideoEpisode[]
+  /** 是否为可下探的季度 / 合集 */
+  series?: boolean
 }
 
 export interface Page<T> {
@@ -96,6 +112,10 @@ export interface DownloadJob {
   error?: string
   startedAt?: string
   finishedAt?: string
+  /** 请求清晰度不可用，已按源站实际下发值降级 */
+  qualityFallback?: boolean
+  /** 命中本地库，未重新下载 */
+  fromLibrary?: boolean
 }
 
 export interface PlaybackResolve {

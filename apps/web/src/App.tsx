@@ -19,7 +19,7 @@ export interface PlayTarget {
 
 const TABS = [
   { key: 'library', label: '库' },
-  { key: 'tree', label: '线索树' },
+  { key: 'tree', label: '线索' },
   { key: 'settings', label: '设置' },
 ]
 

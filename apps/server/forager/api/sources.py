@@ -65,6 +65,8 @@ async def source_detail(request: Request, source_id: str, vid: str, response: Re
     meta = request.app.state.meta
 
     cached = meta.get(key)
+    if cached is not None and cached[0].get("series"):
+        cached = None  # 分集列表需要实时性，旧缓存直接绕过
     if cached is not None:
         detail, stream_valid = cached
         if stream_valid:
@@ -81,7 +83,9 @@ async def source_detail(request: Request, source_id: str, vid: str, response: Re
             return detail
 
     detail = await source.detail(vid)
-    meta.put(key, detail)
+    # 季度/合集的分集列表会随更新变化，不能按元数据缓存 7 天
+    if not detail.get("series"):
+        meta.put(key, detail)
     response.headers["x-cache"] = "MISS"
     return detail
 

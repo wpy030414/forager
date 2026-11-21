@@ -7,7 +7,7 @@
             ├─ /                     SPA（构建产物 apps/server/static）
             ├─ /api/sources/*        源适配：列表/搜索/详情/流代理/图片代理
             ├─ /api/library/*        本地库、下载队列、分面、播放解析
-            ├─ /api/tree/*           线索树（发现规则与进度）
+            ├─ /api/tree/*           线索（发现规则与进度）
             ├─ /api/settings/*       凭据与网络参数（加密存储、热应用）
             └─ /api/auth/*           扫码登录
                     │
@@ -31,7 +31,7 @@
 | `sources/bilibili.py` | WBI 签名、buvid3 自取、dash 双轨、durl 直放、分区/UP主/收藏/关注、PGC 番剧剧集、扫码登录 |
 | `library/downloader.py` | 单并发队列；dash 双轨 + ffmpeg remux；`.part` 原子落盘；元数据全量快照 |
 | `library/cache.py` | 元数据 7 天 + 直链单独判过期；封面按 URL 哈希落盘 |
-| `subs/scheduler.py` | 线索树：巡检、差集入队、收藏/关注展开子节点、进度统计 |
+| `subs/scheduler.py` | 线索：巡检、差集入队、收藏/关注展开子节点、进度统计 |
 | `source_config.py` + `secrets.py` | 配置读写、掩码、Fernet 加密、保存后热应用 |
 | `api/*` | 路由与统一错误出口（一律 `{"error": ...}`） |
 
@@ -39,6 +39,8 @@
 
 - **发现**：Scheduler 按 `interval_sec` 到期 → adapter 发现方法 → 与 `subscription_seen` 差集 →
   新条目 `Downloader.enqueue` → 全量记入 seen。
+- **浏览与手选**：线索 → `source.browse`（番剧按季度、其余按视频）→ 详情返回 `episodes` →
+  前端展开选集（番剧 ep / UGC 分P `BV...:pN`）→ 每个最小单元独立入队、独立进度。
 - **下载**：detail 取元数据 → 若候选带 `audioUrl` 则双轨下载 + ffmpeg `-c copy` 合并 →
   校验长度 → 原子重命名 → 写封面 → 入 `library`（含 `category` 分区列）。
 - **观看**：库卡片 → `/api/library/play`（本地优先）→ `<video>` 走 `/api/library/media/*`（支持 Range）。

@@ -1,4 +1,4 @@
-"""线索树调度器。
+"""线索调度器。
 
 一个「线索」= 一条持续发现规则，落在 subscriptions 表（沿用旧表名）：
 - query      关键词搜索
@@ -205,7 +205,7 @@ class SubscriptionScheduler:
                 due.append(row)
         return due
 
-    # ---- 线索树 ----
+    # ---- 线索 ----
 
     def tree(self) -> dict[str, Any]:
         rows = [dict(r) for r in self.db.query("SELECT * FROM subscriptions ORDER BY id")]

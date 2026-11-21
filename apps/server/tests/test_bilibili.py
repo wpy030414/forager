@@ -12,13 +12,19 @@ from forager.sources.bilibili import (
     BilibiliSource,
     build_detail,
     build_pgc_detail,
+    build_pgc_episodes,
+    build_pgc_series_detail,
     build_pgc_summary,
     build_qualities,
+    build_ugc_episodes,
+    find_ugc_page,
     latest_pgc_episode,
     mixin_key,
     parse_bvid,
     parse_ep_id,
+    parse_part_id,
     parse_pgc_timeline,
+    parse_season_id,
     sign_query,
     _duration_seconds,
     _https,
@@ -326,3 +332,104 @@ async def test_partition_keeps_ugc_ranking_for_tid_4(monkeypatch) -> None:
     assert result["items"][0]["id"] == "BV1xx411c7mD"
     assert calls[0][0] == "/x/web-interface/ranking/v2"
     assert calls[0][1]["rid"] == "4"
+
+
+# ---- 分P / 季度下探 ----
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("BV1xx411c7mD:p2", ("BV1xx411c7mD", 2)),
+        ("BV1xx411c7mD?p=12", ("BV1xx411c7mD", 12)),
+        ("BV1xx411c7mD", None),
+        ("ep123", None),
+    ],
+)
+def test_parse_part_id(raw: str, expected) -> None:
+    assert parse_part_id(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("ss33415", 33415),
+        ("https://www.bilibili.com/bangumi/play/ss33415?spm=1", 33415),
+        ("ep123", None),
+    ],
+)
+def test_parse_season_id(raw: str, expected: int | None) -> None:
+    assert parse_season_id(raw) == expected
+
+
+def test_build_ugc_episodes_only_for_multi_part() -> None:
+    single = {"pages": [{"page": 1, "cid": 1, "part": "正片", "duration": 120}]}
+    assert build_ugc_episodes("BV1xx411c7mD", single) == []
+
+    multi = {
+        "pages": [
+            {"page": 1, "cid": 1, "part": "上", "duration": 120},
+            {"page": 2, "cid": 2, "part": "下", "duration": 90},
+        ]
+    }
+    episodes = build_ugc_episodes("BV1xx411c7mD", multi, cover_url="https://x/c.jpg")
+    assert [ep["id"] for ep in episodes] == ["BV1xx411c7mD:p1", "BV1xx411c7mD:p2"]
+    assert episodes[1]["title"] == "P2 下"
+    assert episodes[1]["durationSec"] == 90
+    assert episodes[0]["coverUrl"] == "https://x/c.jpg"
+
+
+def test_find_ugc_page_falls_back_to_single_part() -> None:
+    view = {"cid": 9, "pages": [{"page": 1, "cid": 9}]}
+    assert find_ugc_page(view, 1)["cid"] == 9
+    assert find_ugc_page(view, 2) is None
+
+
+def test_build_pgc_episodes_filters_future_and_sorts() -> None:
+    season = {
+        "cover": "https://x/season.png",
+        "episodes": [
+            {"ep_id": 2, "title": "2", "long_title": "后篇", "pub_time": 200, "duration": 120000},
+            {"ep_id": 3, "title": "3", "long_title": "未播", "pub_time": 900, "duration": 120000},
+            {"ep_id": 1, "title": "1", "long_title": "前篇", "pub_time": 100, "duration": 120000},
+        ],
+    }
+    episodes = build_pgc_episodes(season, now=500)
+    assert [ep["id"] for ep in episodes] == ["ep1", "ep2"]
+    assert episodes[0]["title"] == "第1话 · 前篇"
+    assert episodes[0]["coverUrl"] == "https://x/season.png"
+
+
+def test_build_pgc_series_detail_lists_episodes() -> None:
+    season = {
+        "season_id": 1446,
+        "title": "校园迷糊大王",
+        "season_type_name": "番剧",
+        "cover": "https://x/season.png",
+        "stat": {"views": 123},
+        "episodes": [
+            {"ep_id": 1, "title": "1", "long_title": "第一话", "pub_time": 100},
+            {"ep_id": 2, "title": "2", "long_title": "第二话", "pub_time": 200},
+        ],
+    }
+    detail = build_pgc_series_detail("bilibili", season, now=500)
+    assert detail["id"] == "ss1446"
+    assert detail["series"] is True
+    assert detail["pageUrl"] == "https://www.bilibili.com/bangumi/play/ss1446"
+    assert [ep["id"] for ep in detail["episodes"]] == ["ep1", "ep2"]
+
+
+def test_build_pgc_detail_includes_siblings() -> None:
+    season = {
+        "season_id": 1446,
+        "title": "校园迷糊大王",
+        "episodes": [
+            {"ep_id": 1, "title": "1", "pub_time": 100},
+            {"ep_id": 2, "title": "2", "pub_time": 200},
+        ],
+    }
+    episode = season["episodes"][0]
+    detail = build_pgc_detail(
+        "bilibili", season, episode, {"quality": 32, "durl": [{"url": "https://x/1.mp4"}]}
+    )
+    assert detail["series"] is True
+    assert [ep["id"] for ep in detail["episodes"]] == ["ep1", "ep2"]

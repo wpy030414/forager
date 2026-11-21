@@ -30,7 +30,7 @@ class BaseSource:
     image_hosts: ClassVar[tuple[str, ...]] = ()
     #: 可在 Web 设置页调整的字段（见 source_config.FIELD_META）
     config_fields: ClassVar[tuple[str, ...]] = ()
-    #: 线索树支持的发现类型
+    #: 线索支持的发现类型
     kinds: ClassVar[tuple[str, ...]] = ("query",)
     #: 可选清晰度（空表示不限制）
     quality_options: ClassVar[tuple[str, ...]] = ()
@@ -68,7 +68,21 @@ class BaseSource:
     async def detail(self, vid: str) -> dict[str, Any]:
         raise NotImplementedError
 
-    # ---- 线索树用的发现能力（按源可选实现）----
+    # ---- 线索用的发现能力（按源可选实现）----
+
+    async def browse(self, kind: str, value: str, page: int = 1) -> dict[str, Any]:
+        """按线索类型浏览在线内容。
+
+        与定时发现分开：browse 面向用户浏览（如番剧按季度展示），
+        partition_items 面向持续发现（直接产出可下载的最小单元）。
+        """
+        if kind == "query":
+            return await self.search(value, page)
+        if kind == "partition":
+            return await self.partition_items(value, page)
+        if kind == "uploader":
+            return await self.uploader_items(value, page)
+        raise SourceError("该线索类型不支持浏览", 400)
 
     def categories(self) -> list[dict[str, str]]:
         """源站分区列表：id 用于订阅，name 用于展示。"""
