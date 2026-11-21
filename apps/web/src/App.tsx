@@ -22,12 +22,6 @@ export interface PlayTarget {
   startAtMs: number
 }
 
-const TABS = [
-  { key: 'home', label: '首页' },
-  { key: 'library', label: '库' },
-  { key: 'tree', label: '线索' },
-]
-
 function parseHash(): Page {
   const h = window.location.hash.replace(/^#\/?/, '')
   if (h === 'library') return { name: 'library' }
@@ -80,14 +74,13 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!ready) return
-    const key = page.name === 'settings' ? 'TOP-SETTINGS' : `TAB-${page.name}`
-    // 等新页面挂载并完成焦点注册（两帧）后再设焦点
+    if (!ready || page.name === 'home') return
+    // 二级页面默认把焦点放在左上角返回键；首页由 HomePage 自己决定第一张卡
     let inner: ReturnType<typeof setTimeout> | undefined
     const t = setTimeout(() => {
       inner = setTimeout(() => {
         try {
-          void setFocus(key).catch(() => {})
+          void setFocus('TOP-BACK').catch(() => {})
         } catch {
           /* key 未注册：保持现状 */
         }
@@ -101,6 +94,7 @@ export function App() {
 
   const startPlay = useCallback((target: PlayTarget) => setPlaying(target), [])
   const stopPlay = useCallback(() => setPlaying(null), [])
+  const goHome = useCallback(() => setPage({ name: 'home' }), [])
 
   const openSource = (source: string) => setPage({ name: 'library', source })
 
@@ -108,14 +102,9 @@ export function App() {
     <div className="relative min-h-screen bg-[hsl(var(--background))] pb-10">
       {!playing ? (
         <TopBar
-          tabs={TABS}
-          active={page.name}
+          showBack={page.name !== 'home'}
           settingsActive={page.name === 'settings'}
-          onSelect={(key) => {
-            if (key === 'home') setPage({ name: 'home' })
-            else if (key === 'library') setPage({ name: 'library' })
-            else if (key === 'tree') setPage({ name: 'tree' })
-          }}
+          onBack={goHome}
           onSettings={() => setPage({ name: 'settings' })}
         />
       ) : null}

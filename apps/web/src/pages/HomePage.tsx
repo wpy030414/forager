@@ -1,7 +1,7 @@
 import type { ContinueItem, LibraryItem } from '@libre-tv/shared/types'
 import { useEffect, useMemo, useState } from 'react'
 import { setFocus } from '@noriginmedia/norigin-spatial-navigation'
-import { ChevronRight, Compass } from 'lucide-react'
+import { ChevronRight, Compass, Plus } from 'lucide-react'
 import { api } from '@/api/client'
 import type { Facets, TreeGroup, TreeResponse } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
@@ -46,9 +46,8 @@ const PLATFORM_STYLE: Record<
 }
 
 /**
- * 首页：tvOS 流式墙。
- * 继续播放 / 为你推荐横向货架 → 平台入口 → 线索速览。
- * 获焦卡片会把封面推成背景，横向列表自动居中滚动。
+ * 首页：tvOS 无 chrome 流式墙。
+ * 4K 风景照打满全屏；除「继续播放 / 为你推荐」外，其余区块只有内容，没有标题与更多入口。
  */
 export function HomePage({
   onPlay,
@@ -68,7 +67,6 @@ export function HomePage({
   const [tree, setTree] = useState<TreeResponse>()
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
-  const [backdrop, setBackdrop] = useState<string>()
 
   useEffect(() => {
     let alive = true
@@ -86,7 +84,6 @@ export function HomePage({
         setSources(sourceList)
         setFacets(facetData)
         setTree(treeData)
-        setBackdrop(undefined)
         setError(undefined)
       })
       .catch((e) => {
@@ -158,7 +155,7 @@ export function HomePage({
         ? 'HOME-RECENT-0'
         : platforms[0]
           ? `PLATFORM-${platforms[0].id}`
-          : 'TAB-home'
+          : 'TOP-SETTINGS'
     const id = setTimeout(() => {
       void setFocus(target).catch(() => {})
     }, 140)
@@ -169,9 +166,13 @@ export function HomePage({
 
   return (
     <div className="relative min-h-screen">
-      <Backdrop url={backdrop} />
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute inset-0 animate-slow-zoom bg-[url('/wallpaper.jpg')] bg-cover bg-center" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-[#05060a]/35 to-[#05060a]/95" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/35 via-transparent to-black/10" />
+      </div>
 
-      <div className="relative z-10 space-y-12 px-12 pb-28 pt-28">
+      <div className="relative z-10 space-y-10 px-12 pb-28 pt-24">
         {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
         <div className="grid gap-10 xl:grid-cols-2">
@@ -180,15 +181,15 @@ export function HomePage({
             title="继续播放"
             caption="从上次停下的地方接着看"
             empty="还没有播放记录"
+            emptyAction="去库里挑一部"
+            action={{ label: '查看全部', onClick: onOpenLibrary }}
             items={cont.map((item) => ({
               item,
               progressMs: item.progress.positionMs,
               durationMs: item.progress.durationMs,
               onSelect: () => playLocal(item, item.progress.positionMs),
             }))}
-            onFocusCover={setBackdrop}
             onEmpty={onOpenLibrary}
-            emptyAction="去库里挑一部"
           />
 
           <Shelf
@@ -196,28 +197,22 @@ export function HomePage({
             title="为你推荐"
             caption="最近入库"
             empty="库里还没有新内容"
+            emptyAction="去线索里发现"
+            action={{ label: '查看全部', onClick: onOpenLibrary }}
             items={recent.map((item) => ({
               item,
               onSelect: () => void playRecent(item),
             }))}
-            onFocusCover={setBackdrop}
             onEmpty={onOpenClues}
-            emptyAction="去线索里发现"
           />
         </div>
 
         <section className="animate-fade-up [animation-delay:120ms]">
-          <SectionTitle
-            title="平台"
-            caption="按来源进入内容库"
-            action={{ label: '全部内容', onClick: onOpenLibrary }}
-          />
-          <div className="shelf-scroll flex gap-4 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="shelf-scroll flex gap-4 overflow-x-auto rounded-[30px] border border-white/10 bg-white/[0.045] p-4 backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {platforms.map((platform) => (
               <PlatformCard
                 key={platform.id}
                 platform={platform}
-                onFocus={() => setBackdrop(undefined)}
                 onSelect={() => {
                   if (platform.soon) {
                     setNotice(`${platform.label} 源还未接入`)
@@ -230,25 +225,17 @@ export function HomePage({
           </div>
         </section>
 
-        {clueGroups.length > 0 ? (
-          <section className="animate-fade-up [animation-delay:220ms]">
-            <SectionTitle
-              title="线索"
-              caption="持续发现规则"
-              action={{ label: '全部线索', onClick: onOpenClues }}
-            />
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {clueGroups.map((group) => (
-                <ClueSummary
-                  key={group.source}
-                  group={group}
-                  onFocus={() => setBackdrop(undefined)}
-                  onSelect={onOpenClues}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <section className="animate-fade-up [animation-delay:220ms]">
+          <div className="shelf-scroll flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {clueGroups.length === 0 ? (
+              <ClueCreateCard onSelect={onOpenClues} />
+            ) : (
+              clueGroups.map((group) => (
+                <ClueSummary key={group.source} group={group} onSelect={onOpenClues} />
+              ))
+            )}
+          </div>
+        </section>
       </div>
 
       {notice ? (
@@ -274,7 +261,7 @@ function Shelf({
   empty,
   emptyAction,
   items,
-  onFocusCover,
+  action,
   onEmpty,
 }: {
   id: string
@@ -283,16 +270,29 @@ function Shelf({
   empty: string
   emptyAction: string
   items: ShelfEntry[]
-  onFocusCover: (cover?: string) => void
+  action?: { label: string; onClick: () => void }
   onEmpty: () => void
 }) {
   return (
     <section className="min-w-0 animate-fade-up">
-      <SectionTitle title={title} caption={caption} />
+      <div className="mb-2 flex items-end justify-between gap-4 px-1">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-white/95">{title}</h2>
+          <p className="mt-0.5 text-[11px] text-white/45">{caption}</p>
+        </div>
+        {action ? (
+          <Focusable scale="sm" onEnter={action.onClick}>
+            <span className="flex items-center gap-1 rounded-full bg-black/25 px-3 py-1.5 text-[11px] text-white/65 backdrop-blur">
+              {action.label}
+              <ChevronRight className="h-3 w-3" />
+            </span>
+          </Focusable>
+        ) : null}
+      </div>
       {items.length === 0 ? (
         <Focusable focusKey={`HOME-EMPTY-${id}`} onEnter={onEmpty} scale="sm">
-          <div className="flex h-52 w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/15 bg-white/[0.03]">
-            <p className="text-sm text-zinc-400">{empty}</p>
+          <div className="flex h-52 w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/20 bg-black/20 backdrop-blur-sm">
+            <p className="text-sm text-white/55">{empty}</p>
             <span className="rounded-full bg-white/10 px-4 py-1.5 text-xs text-white">
               {emptyAction}
             </span>
@@ -308,7 +308,6 @@ function Shelf({
               durationMs={entry.durationMs}
               focusKey={`HOME-${id.toUpperCase()}-${index}`}
               onSelect={entry.onSelect}
-              onFocus={onFocusCover}
             />
           ))}
         </div>
@@ -317,52 +316,18 @@ function Shelf({
   )
 }
 
-function SectionTitle({
-  title,
-  caption,
-  action,
-}: {
-  title: string
-  caption?: string
-  action?: { label: string; onClick: () => void }
-}) {
-  return (
-    <div className="mb-2 flex items-end justify-between gap-4 px-1">
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight text-white/95">{title}</h2>
-        {caption ? <p className="mt-0.5 text-[11px] text-white/45">{caption}</p> : null}
-      </div>
-      {action ? (
-        <Focusable scale="sm" onEnter={action.onClick}>
-          <span className="flex items-center gap-1 rounded-full bg-white/5 px-3 py-1.5 text-[11px] text-white/65">
-            {action.label}
-            <ChevronRight className="h-3 w-3" />
-          </span>
-        </Focusable>
-      ) : null}
-    </div>
-  )
-}
-
 function PlatformCard({
   platform,
-  onFocus,
   onSelect,
 }: {
   platform: { id: string; label: string; mark: string; gradient: string; soon: boolean; count: number }
-  onFocus: () => void
   onSelect: () => void
 }) {
   return (
-    <Focusable
-      focusKey={`PLATFORM-${platform.id}`}
-      onFocus={onFocus}
-      onEnter={onSelect}
-      className="shrink-0"
-    >
+    <Focusable focusKey={`PLATFORM-${platform.id}`} onEnter={onSelect} className="shrink-0">
       <div
         className={[
-          'relative flex h-32 w-56 flex-col justify-between overflow-hidden rounded-[26px] bg-gradient-to-br p-5 ring-1 ring-white/15',
+          'relative flex h-32 w-56 flex-col justify-between overflow-hidden rounded-[24px] bg-gradient-to-br p-5 ring-1 ring-white/15',
           platform.gradient,
           platform.soon ? 'opacity-55' : '',
         ].join(' ')}
@@ -389,22 +354,14 @@ function PlatformCard({
   )
 }
 
-function ClueSummary({
-  group,
-  onFocus,
-  onSelect,
-}: {
-  group: TreeGroup
-  onFocus: () => void
-  onSelect: () => void
-}) {
+function ClueSummary({ group, onSelect }: { group: TreeGroup; onSelect: () => void }) {
   const total = group.total.discovered
   const done = group.total.done
   const pct = total ? Math.round((done / total) * 100) : 0
 
   return (
-    <Focusable focusKey={`HOME-CLUE-${group.source}`} onFocus={onFocus} onEnter={onSelect}>
-      <div className="flex items-center justify-between gap-4 rounded-2xl bg-white/[0.05] p-4 ring-1 ring-white/10">
+    <Focusable focusKey={`HOME-CLUE-${group.source}`} onEnter={onSelect} className="shrink-0">
+      <div className="flex w-[22rem] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/25 p-4 backdrop-blur-sm">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white">
             <Compass className="h-5 w-5" />
@@ -416,7 +373,7 @@ function ClueSummary({
             </p>
           </div>
         </div>
-        <div className="w-24 shrink-0">
+        <div className="w-20 shrink-0">
           <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
             <div
               className="h-full rounded-full bg-emerald-400 transition-all duration-500"
@@ -429,34 +386,18 @@ function ClueSummary({
   )
 }
 
-function Backdrop({ url }: { url?: string }) {
-  const [current, setCurrent] = useState<string>()
-  const [previous, setPrevious] = useState<string>()
-
-  useEffect(() => {
-    if (!url || url === current) return
-    setPrevious(current)
-    setCurrent(url)
-  }, [url, current])
-
+function ClueCreateCard({ onSelect }: { onSelect: () => void }) {
   return (
-    <div className="pointer-events-none fixed inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-[#05060a]" />
-      <div className="home-ambient absolute inset-0" />
-      {previous ? (
-        <div
-          className="absolute inset-0 scale-110 bg-cover bg-center opacity-25 blur-3xl"
-          style={{ backgroundImage: `url(${previous})` }}
-        />
-      ) : null}
-      {current ? (
-        <div
-          key={current}
-          className="absolute inset-0 scale-110 animate-fade-in bg-cover bg-center opacity-55 blur-3xl"
-          style={{ backgroundImage: `url(${current})` }}
-        />
-      ) : null}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-[#05060a]/65 to-[#05060a]" />
-    </div>
+    <Focusable focusKey="HOME-CLUE-CREATE" onEnter={onSelect} className="shrink-0">
+      <div className="flex h-[74px] w-[22rem] items-center gap-3 rounded-2xl border border-dashed border-white/20 bg-black/20 px-4 backdrop-blur-sm">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white">
+          <Plus className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-white">创建第一条线索</p>
+          <p className="mt-0.5 text-[11px] text-white/45">持续发现并自动入库</p>
+        </div>
+      </div>
+    </Focusable>
   )
 }

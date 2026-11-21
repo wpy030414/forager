@@ -13,7 +13,6 @@ export function WideCard({
   progressMs = 0,
   durationMs,
   onSelect,
-  onFocus,
   focusKey,
   className = 'w-[clamp(260px,30vw,440px)] shrink-0',
 }: {
@@ -21,7 +20,6 @@ export function WideCard({
   progressMs?: number
   durationMs?: number | null
   onSelect: () => void
-  onFocus?: (coverUrl?: string) => void
   focusKey?: string
   className?: string
 }) {
@@ -36,7 +34,6 @@ export function WideCard({
 
   const handleFocus = () => {
     setFocused(true)
-    onFocus?.(cover)
     anchor.current?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
   }
 
