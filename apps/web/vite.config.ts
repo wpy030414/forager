@@ -10,7 +10,7 @@ const apiPort = process.env.PORT || '11408'
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: '../../server/static',
+    outDir: '../../apps/server/static',
     emptyOutDir: true,
   },
   resolve: {

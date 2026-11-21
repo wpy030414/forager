@@ -1,0 +1,10 @@
+{
+  "name": "@libre-tv/server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/py.mjs -m forager",
+    "start": "node scripts/py.mjs -m forager",
+    "test": "node scripts/py.mjs -m pytest -q"
+  }
+}

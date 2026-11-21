@@ -28,4 +28,4 @@ data/
 **/__pycache__/
 *.pyc
 .pytest_cache/
-server/static/
+apps/server/static/

@@ -21,7 +21,7 @@ forager 需要的是 NAS 上可长期跑的 Python 服务，因此**后端重写
 | `routes/sources.ts` | `api/sources.py` | 含 `x-cache: HIT/PARTIAL/STALE/MISS` 语义 |
 | `routes/library.ts` | `api/library.py` | 含 Range 单文件服务与目录穿越防护 |
 | `index.ts`（静态托管） | `api/app.py` | SPA fallback + `/assets` 挂载 |
-| `apps/server/tests/*.test.ts` | `server/tests/*.py` | 逐条移植，另补 API 装配冒烟与路径穿越测试 |
+| `apps/server/tests/*.test.ts`（旧 TS 后端） | `apps/server/tests/*.py` | 逐条移植，另补 API 装配冒烟与路径穿越测试 |
 
 ## 有意改变的地方
 

@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @libre-tv/web dev",
+    "dev": "pnpm -r --parallel --filter @libre-tv/web --filter @libre-tv/server run dev",
+    "dev:web": "pnpm --filter @libre-tv/web dev",
+    "dev:server": "pnpm --filter @libre-tv/server dev",
     "build": "pnpm --filter @libre-tv/web build",
-    "check": "pnpm --filter @libre-tv/web check"
+    "check": "pnpm --filter @libre-tv/web check",
+    "test": "pnpm --filter @libre-tv/server test"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

@@ -4,7 +4,7 @@ node_modules
 **/node_modules
 data
 **/dist
-server/.venv
+apps/server/.venv
 **/__pycache__
 **/*.pyc
 .pytest_cache

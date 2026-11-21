@@ -6,9 +6,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# forager/config.py → parents[0]=forager, [1]=server, [2]=仓库根
+# forager/config.py → parents[0]=forager, [1]=apps/server, [2]=apps, [3]=仓库根
 _SERVER_ROOT = Path(__file__).resolve().parents[1]
-_REPO_ROOT = _SERVER_ROOT.parent
+_REPO_ROOT = _SERVER_ROOT.parents[1]
 
 
 def _env(*names: str, default: str | None = None) -> str | None:

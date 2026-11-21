@@ -8,7 +8,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @libre-tv/web build \
  && mkdir -p /out \
- && cp -a server/static/. /out/
+ && cp -a apps/server/static/. /out/
 
 # ---------- 2) 运行镜像 ----------
 FROM python:3.13-slim AS runtime
@@ -35,9 +35,9 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY server/pyproject.toml ./server/pyproject.toml
-COPY server/forager ./server/forager
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple ./server
+COPY apps/server/pyproject.toml ./apps/server/pyproject.toml
+COPY apps/server/forager ./apps/server/forager
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple ./apps/server
 
 COPY --from=web /out /app/static
 COPY docker/entrypoint.sh /usr/local/bin/forager-entrypoint

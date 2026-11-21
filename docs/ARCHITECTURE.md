@@ -4,7 +4,7 @@
 
 ```
 浏览器 ──► FastAPI (:11408)
-            ├─ /                     SPA（构建产物 server/static）
+            ├─ /                     SPA（构建产物 apps/server/static）
             ├─ /api/sources/*        源适配：列表/搜索/详情/流代理/图片代理
             ├─ /api/library/*        本地库、下载队列、分面、播放解析
             ├─ /api/tree/*           线索树（发现规则与进度）

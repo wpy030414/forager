@@ -47,19 +47,28 @@ docker compose up -d --build
 
 ### 本地开发
 
-```bash
-cd server && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
-pnpm --filter @libre-tv/web build     # 产物输出到 server/static
-.venv/bin/python -m forager          # 默认即托管 server/static
+仓库是 pnpm workspace：`apps/web`（SPA）+ `apps/server`（Python 后端）+ `packages/shared`。
 
-pnpm --filter @libre-tv/web dev    # 另一个终端，/api 自动代理
-cd server && .venv/bin/python -m pytest -q
+```bash
+# 一次性：建虚拟环境并装后端依赖
+cd apps/server
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'     # Windows: .venv\Scripts\pip install -e ".[dev]"
+source .venv/bin/activate              # Windows: .venv\Scripts\activate
+cd ../..
+
+pnpm dev                               # 并行拉起前后端；前端 /api 自动代理到后端
+pnpm dev:server                        # 只起后端，默认托管 apps/server/static
+pnpm dev:web                           # 只起前端
+
+pnpm build                             # 产物输出到 apps/server/static
+pnpm test                              # 后端 pytest
 ```
 
 ## 目录结构
 
 ```
-server/forager/
+apps/server/forager/
 ├── config.py            环境变量 → Settings
 ├── db.py                SQLite：library / progress / settings / meta_cache / subscriptions
 ├── secrets.py           Fernet 凭据加密与密钥管理
