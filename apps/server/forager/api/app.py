@@ -35,7 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
         db = Database(settings.data_dir)
-        source_map = create_sources(settings)
+        source_map = create_sources(settings, db)
         app.state.settings = settings
         app.state.db = db
         app.state.sources = source_map

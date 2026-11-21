@@ -15,12 +15,17 @@ export interface HomePlayTarget {
   startAtMs: number
 }
 
-const PLATFORM_ORDER = ['bilibili', 'hanime1', 'pixiv', 'cctv']
+const PLATFORM_ORDER = ['local', 'bilibili', 'hanime1', 'pixiv', 'cctv']
 
 const PLATFORM_STYLE: Record<
   string,
   { label: string; mark: string; gradient: string; soon?: boolean }
 > = {
+  local: {
+    label: '本地',
+    mark: '本',
+    gradient: 'from-[#52525b] via-[#27272a] to-[#09090b]',
+  },
   bilibili: {
     label: '哔哩哔哩',
     mark: 'bilibili',
@@ -52,12 +57,10 @@ const PLATFORM_STYLE: Record<
 export function HomePage({
   onPlay,
   onOpenSource,
-  onOpenLibrary,
   onOpenClues,
 }: {
   onPlay: (target: HomePlayTarget) => void
   onOpenSource: (source: string) => void
-  onOpenLibrary: () => void
   onOpenClues: () => void
 }) {
   const [cont, setCont] = useState<ContinueItem[]>([])
@@ -106,7 +109,10 @@ export function HomePage({
         mark: style.mark,
         gradient: style.gradient,
         soon: false,
-        count: facets?.sources.find((item) => item.source === source.id)?.count ?? 0,
+        count:
+          source.id === 'local'
+            ? facets?.total ?? 0
+            : facets?.sources.find((item) => item.source === source.id)?.count ?? 0,
       }
     })
     const activeIds = new Set(active.map((item) => item.id))
@@ -172,7 +178,7 @@ export function HomePage({
           <Shelf
             id="continue"
             title="继续播放"
-            action={{ label: '查看全部', onClick: onOpenLibrary }}
+            action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={cont.map((item) => ({
               item,
               progressMs: item.progress.positionMs,
@@ -184,7 +190,7 @@ export function HomePage({
           <Shelf
             id="recent"
             title="为你推荐"
-            action={{ label: '查看全部', onClick: onOpenLibrary }}
+            action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={recent.map((item) => ({
               item,
               onSelect: () => void playRecent(item),

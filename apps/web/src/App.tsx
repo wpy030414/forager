@@ -4,13 +4,13 @@ import { api } from '@/api/client'
 import { Player } from '@/components/Player'
 import { TopBar } from '@/components/TopBar'
 import { HomePage } from '@/pages/HomePage'
-import { LibraryPage } from '@/pages/LibraryPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { SourcePage } from '@/pages/SourcePage'
 import { TreePage } from '@/pages/TreePage'
 
 type Page =
   | { name: 'home' }
-  | { name: 'library'; source?: string }
+  | { name: 'source'; id: string }
   | { name: 'tree' }
   | { name: 'settings' }
 
@@ -24,7 +24,8 @@ export interface PlayTarget {
 
 function parseHash(): Page {
   const h = window.location.hash.replace(/^#\/?/, '')
-  if (h === 'library') return { name: 'library' }
+  if (h === 'library') return { name: 'source', id: 'local' }
+  if (h.startsWith('source/')) return { name: 'source', id: decodeURIComponent(h.slice(7)) }
   if (h === 'tree') return { name: 'tree' }
   if (h === 'settings') return { name: 'settings' }
   return { name: 'home' }
@@ -32,6 +33,7 @@ function parseHash(): Page {
 
 function toHash(p: Page): string {
   if (p.name === 'home') return '#/'
+  if (p.name === 'source') return `#/source/${encodeURIComponent(p.id)}`
   return `#/${p.name}`
 }
 
@@ -96,7 +98,7 @@ export function App() {
   const stopPlay = useCallback(() => setPlaying(null), [])
   const goHome = useCallback(() => setPage({ name: 'home' }), [])
 
-  const openSource = (source: string) => setPage({ name: 'library', source })
+  const openSource = useCallback((id: string) => setPage({ name: 'source', id }), [])
 
   return (
     <div className="relative min-h-screen bg-[hsl(var(--background))] pb-10">
@@ -114,16 +116,11 @@ export function App() {
           <HomePage
             onPlay={startPlay}
             onOpenSource={openSource}
-            onOpenLibrary={() => setPage({ name: 'library' })}
             onOpenClues={() => setPage({ name: 'tree' })}
           />
         ) : null}
-        {!playing && page.name === 'library' ? (
-          <LibraryPage
-            key={page.source ?? 'all'}
-            initialSource={page.source}
-            onPlay={startPlay}
-          />
+        {!playing && page.name === 'source' ? (
+          <SourcePage key={page.id} source={page.id} onPlay={startPlay} />
         ) : null}
         {!playing && page.name === 'tree' ? <TreePage /> : null}
         {!playing && page.name === 'settings' ? <SettingsPage /> : null}

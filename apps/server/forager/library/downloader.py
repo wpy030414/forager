@@ -67,6 +67,19 @@ class Downloader:
     # ---- 对外接口 ----
 
     def enqueue(self, source: str, vid: str, quality: str | None = None) -> dict[str, Any]:
+        # 本地源的内容已经在盘上，不存在“下载”
+        if source == "local":
+            return {
+                "key": vid,
+                "source": source,
+                "id": vid,
+                "title": "",
+                "status": "done",
+                "quality": quality or "local",
+                "progress": 100,
+                "receivedBytes": 0,
+                "fromLibrary": True,
+            }
         key = f"{source}:{vid}"
         existing = self._jobs.get(key)
         if existing and existing["status"] in {"queued", "downloading"}:

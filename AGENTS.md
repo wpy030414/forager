@@ -3,8 +3,9 @@
 forager 是自托管媒体采集与归档服务（Python 后端 + tvOS 风格 SPA 前端）。
 
 ## 概述
-- 本项目是什么：按「线索」持续发现源站内容，下载归档到本地，并在 Web 端按来源与分区分面浏览。
-- 两个源：hanime1（HTML 解析）、Bilibili（WAPI + WBI 签名 + dash 双轨合并）。
+- 核心哲学：界面的一切内容都来自「源」——本地库（`local`）也是源，与哔哩哔哩、Hanime1 同级，共用同一套 list / search / categories / detail / play 契约。
+- 本项目是什么：按「线索」持续发现源站内容，下载归档到本地源，并在 Web 端按源浏览。
+- 两个在线源：hanime1（HTML 解析）、Bilibili（WAPI + WBI 签名 + dash 双轨合并）。
 
 ## 边界与范围
 - 范围内：线索调度、下载队列与入库、播放（本地优先 / 源站 Range 代理）、凭据设置与扫码登录。
@@ -21,10 +22,10 @@ forager 是自托管媒体采集与归档服务（Python 后端 + tvOS 风格 SP
 
 ## 目录速查
 - `apps/server/` — Python 后端工作区包（`@libre-tv/server`）：`forager/` 内含
-  `transport/`（curl + DoH）、`sources/`（适配器）、`library/`（下载与缓存）、
-  `subs/`（线索调度）、`api/`（路由）
+  `sources/local.py`（本地源）、`transport/`（curl + DoH）、`sources/`（在线适配器）、
+  `library/`（下载与缓存）、`subs/`（线索调度）、`api/`（路由）
 - `apps/server/tests/` — pytest
-- `apps/web/src/` — React SPA（首页 / 库 / 线索 / 设置，空间导航、tvOS 视觉）
+- `apps/web/src/` — React SPA（首页 / 源 / 线索 / 设置，空间导航、tvOS 视觉）
 - `packages/shared/src/` — 前端共享类型（历史命名，仍为 `@libre-tv/shared`）
 - `docs/` — ARCHITECTURE / DECISIONS / PORT-NOTES / legacy（历史设计）
 - `Dockerfile` / `compose.yaml` — 多阶段镜像与编排

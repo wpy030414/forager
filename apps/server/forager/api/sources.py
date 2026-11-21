@@ -57,6 +57,12 @@ async def source_search(
     return await source.search(keyword, page)
 
 
+@router.get("/{source_id}/categories")
+async def source_categories(request: Request, source_id: str) -> list[dict[str, str]]:
+    """源的分区表：源浏览页的分类筛选用（本地源返回库内已观测分区）。"""
+    return get_source(request, source_id).categories()
+
+
 @router.get("/{source_id}/detail/{vid}")
 async def source_detail(request: Request, source_id: str, vid: str, response: Response) -> dict:
     """详情：元数据缓存命中即零回源；直链过期只重新解析播放地址。"""
@@ -127,7 +133,8 @@ async def source_image(request: Request, source_id: str, url: str | None = None)
         raise HTTPException(status_code=400, detail="缺少参数 url")
 
     parsed = urlparse(url)
-    if parsed.scheme != "https" or not source.allows_image_host(url):
+    # 在线源只允许 https 白名单主机；本地源只允许库内媒体路径（无 scheme）
+    if not source.allows_image_host(url) or parsed.scheme not in ("", "https"):
         raise HTTPException(status_code=403, detail="不允许代理该主机")
 
     cache = request.app.state.images

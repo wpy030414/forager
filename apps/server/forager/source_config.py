@@ -109,6 +109,8 @@ class SourceConfigStore:
     def describe(self, sources: dict[str, BaseSource]) -> list[dict[str, Any]]:
         result = []
         for source_id, source in sources.items():
+            if not source.config_fields:
+                continue  # 本地源等无可配置项的源不出现在设置页
             stored = self.values(source_id, source.config_fields)
             fields = []
             for field in source.config_fields:

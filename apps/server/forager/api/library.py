@@ -30,6 +30,11 @@ def _mime(path: Path) -> str:
     return MIME.get(path.suffix.lower(), "application/octet-stream")
 
 
+def media_key(source: str, vid: str) -> str:
+    """进度/播放的库 key：本地源的条目 id 本身就是库 key，不再二次拼接。"""
+    return vid if source == "local" else f"{source}:{vid}"
+
+
 def _row_to_item(row) -> dict[str, Any]:
     return {
         "key": row["key"],
@@ -217,7 +222,7 @@ async def media(request: Request, file: str) -> Response:
 async def play(request: Request, source: str, vid: str, quality: str | None = None) -> dict[str, Any]:
     app = request.app
     db = app.state.db
-    key = f"{source}:{vid}"
+    key = media_key(source, vid)
     offline = db.get_setting("mode.offline") == "1"
 
     row = db.query_one("SELECT * FROM library WHERE key = ?", (key,))
@@ -248,7 +253,7 @@ async def play(request: Request, source: str, vid: str, quality: str | None = No
 @router.get("/progress/{source}/{vid}")
 async def get_progress(request: Request, source: str, vid: str) -> dict[str, Any] | None:
     row = request.app.state.db.query_one(
-        "SELECT * FROM progress WHERE key = ?", (f"{source}:{vid}",)
+        "SELECT * FROM progress WHERE key = ?", (media_key(source, vid),)
     )
     if row is None:
         return None
@@ -264,11 +269,12 @@ async def save_progress(request: Request, source: str, vid: str) -> dict[str, bo
     body = await _json(request)
     position = max(0, round(float(body.get("positionMs") or 0)))
     duration = body.get("durationMs")
+    key = media_key(source, vid)
     request.app.state.db.execute(
         "INSERT INTO progress (key, position_ms, duration_ms, updated_at) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET position_ms = excluded.position_ms, "
         "duration_ms = excluded.duration_ms, updated_at = excluded.updated_at",
-        (f"{source}:{vid}", position, round(float(duration)) if duration else None, now_iso()),
+        (key, position, round(float(duration)) if duration else None, now_iso()),
     )
     return {"ok": True}
 

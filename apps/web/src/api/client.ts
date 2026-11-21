@@ -124,6 +124,9 @@ export class ApiError extends Error {
 export const api = {
   listSources: () => get<Array<{ id: string; name: string }>>('/api/sources'),
 
+  sourceCategories: (source: string) =>
+    get<Array<{ id: string; name: string }>>(`/api/sources/${source}/categories`),
+
   list: (source: string, page = 1, category?: string) =>
     get<Page<VideoSummary>>(
       `/api/sources/${source}/list?page=${page}${category ? `&category=${encodeURIComponent(category)}` : ''}`,

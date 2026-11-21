@@ -3,7 +3,8 @@
 自托管的媒体采集与归档服务：**按规则持续发现、下载、归档，并按来源与分区分面浏览**。
 
 - 后端：Python 3.12+ / FastAPI / SQLite / asyncio，除系统 `curl` 外无外部服务
-- 前端：tvOS 风格 SPA（React 19），四个页面：**首页 / 库 / 线索 / 设置**
+- 前端：tvOS 风格 SPA（React 19），四个页面：**首页 / 源 / 线索 / 设置**
+- 哲学：界面的一切内容都来自「源」——**本地库也是一个源**，与哔哩哔哩、Hanime1 同级，共用同一套浏览与播放路径
 - 部署：单容器，`docker compose up -d` 即用
 
 > 本仓库前身是 `libre-tv`（Hono + TS 全栈）。forager 用 Python 重写后端并保持接口契约，
@@ -13,13 +14,13 @@
 
 ### 首页
 tvOS 无 chrome 流式墙：进入即 4K 风景照打满全屏，右上角只有时间与设置。
-从上到下依次是「继续播放 / 为你推荐」双货架、平台入口（哔哩哔哩、Hanime1；Pixiv / CCTV 待接入）
+从上到下依次是「继续播放 / 为你推荐」双货架、平台入口（本地、哔哩哔哩、Hanime1；Pixiv / CCTV 待接入）
 与线索入口；除前两个货架外，其余区块不设标题、副标题、提示或「更多」。
 获焦卡片会放大，横向货架自动居中滚动。
 
-### 库
-只看本地已归档内容，按**来源**与**源站分区**（不是 tag）筛选：点来源→再点分区，两级收敛。
-卡片显示清晰度、时长、体积；点一下直接播放，进度自动续看。
+### 源
+每个源一页，本地与在线完全同构：列表 / 搜索 / 分区筛选走
+`/api/sources/<id>/list|search|categories`，播放走 `/api/library/play`（本地文件优先，其次源站代理流）。
 
 ### 线索
 一条线索 = 一条持续发现规则。每个节点显示自己的同步进度与子树汇总进度：
@@ -101,8 +102,9 @@ apps/server/forager/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/sources` | 已注册源 |
-| GET | `/api/sources/:id/list` `search` `detail/:vid` | 源站浏览 / 搜索 / 详情 |
+| GET | `/api/sources` | 已注册源（含 `local` 本地源） |
+| GET | `/api/sources/:id/list` `search` `detail/:vid` | 源浏览 / 搜索 / 详情（本地源同构） |
+| GET | `/api/sources/:id/categories` | 源分区表（本地源返回库内分区） |
 | GET | `/api/sources/:id/stream` `image` | 流代理（Range）/ 图片代理（白名单） |
 | GET | `/api/library/items?source=&category=&q=` | 本地库（支持分面筛选） |
 | GET | `/api/library/continue` | 继续播放（有进度且未看完） |

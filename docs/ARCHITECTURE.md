@@ -1,5 +1,11 @@
 # ARCHITECTURE — forager
 
+## 核心哲学
+
+界面的一切内容都来自「源」：本地库（`local`）与哔哩哔哩、Hanime1 同级，
+共用同一套 list / search / categories / detail / play 契约；
+下载只是「把内容从一个源搬进本地源」。
+
 ## 系统概述
 
 ```
@@ -27,6 +33,7 @@
 | `transport/curl.py` | curl 子进程传输：非流式（HTML/JSON/图片）与流式（Range 透传） |
 | `transport/client.py` | 统一 UA/Referer/Cookie、每主机串行频控、HTML 短 TTL 缓存、DoH 解析 + `--resolve` |
 | `sources/base.py` | 源契约：list/search/detail/stream_url + 线索发现能力 + 配置字段声明 |
+| `sources/local.py` | 本地源：把库暴露成普通源（list/search/categories/detail/封面），不参与线索与设置 |
 | `sources/hanime1.py` | Blade SSR 页面解析（选择器表 + 卡片/详情） |
 | `sources/bilibili.py` | WBI 签名、buvid3 自取、dash 双轨、durl 直放、分区/UP主/收藏/关注、PGC 番剧剧集、扫码登录 |
 | `library/downloader.py` | 单并发队列；dash 双轨 + ffmpeg remux；`.part` 原子落盘；元数据全量快照 |

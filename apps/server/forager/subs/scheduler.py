@@ -241,6 +241,8 @@ class SubscriptionScheduler:
 
         groups = []
         for source_id, source in self.sources.items():
+            if not source.kinds:
+                continue  # 本地等不可发现源不进线索
             roots = [n for n in children.get(None, []) if n["source"] == source_id]
             for root in roots:
                 _aggregate(root)
