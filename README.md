@@ -108,7 +108,6 @@ apps/server/forager/
 | GET | `/api/sources/:id/stream` `image` | 流代理（Range）/ 图片代理（白名单） |
 | GET | `/api/library/items?source=&category=&q=` | 本地库（支持分面筛选） |
 | GET | `/api/library/continue` | 继续播放（有进度且未看完） |
-| GET | `/api/library/recent` | 最近入库（首页推荐） |
 | GET | `/api/library/facets` | 来源与分区的计数分面 |
 | GET | `/api/library/play/:source/:id` | 播放来源解析 |
 | GET/PUT | `/api/library/mode` `progress/:source/:id` | 离线开关 / 续看进度 |

@@ -147,7 +147,6 @@ export const api = {
   library: () => get<LibraryItem[]>('/api/library/items'),
   libraryKeys: () => get<string[]>('/api/library/keys'),
   continueWatching: (limit = 12) => get<ContinueItem[]>(`/api/library/continue?limit=${limit}`),
-  recent: (limit = 12) => get<LibraryItem[]>(`/api/library/recent?limit=${limit}`),
   mode: () => get<{ offline: boolean }>('/api/library/mode'),
   setMode: (offline: boolean) =>
     send<{ offline: boolean }>('/api/library/mode', 'PUT', { offline }),

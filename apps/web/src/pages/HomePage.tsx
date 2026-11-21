@@ -1,4 +1,4 @@
-import type { ContinueItem, LibraryItem } from '@libre-tv/shared/types'
+import type { ContinueItem, VideoSummary } from '@libre-tv/shared/types'
 import { useEffect, useMemo, useState } from 'react'
 import { setFocus } from '@noriginmedia/norigin-spatial-navigation'
 import { ChevronRight, Compass, Plus } from 'lucide-react'
@@ -64,7 +64,7 @@ export function HomePage({
   onOpenClues: () => void
 }) {
   const [cont, setCont] = useState<ContinueItem[]>([])
-  const [recent, setRecent] = useState<LibraryItem[]>([])
+  const [recent, setRecent] = useState<VideoSummary[]>([])
   const [sources, setSources] = useState<Array<{ id: string; name: string }>>([])
   const [facets, setFacets] = useState<Facets>()
   const [tree, setTree] = useState<TreeResponse>()
@@ -74,7 +74,7 @@ export function HomePage({
     let alive = true
     Promise.all([
       api.continueWatching(10),
-      api.recent(12),
+      api.list('local', 1),
       api.listSources(),
       api.facets(),
       api.tree(),
@@ -82,7 +82,7 @@ export function HomePage({
       .then(([continues, latest, sourceList, facetData, treeData]) => {
         if (!alive) return
         setCont(continues)
-        setRecent(latest)
+        setRecent(latest.items.slice(0, 12))
         setSources(sourceList)
         setFacets(facetData)
         setTree(treeData)
@@ -133,18 +133,40 @@ export function HomePage({
     return [...active, ...upcoming].sort((left, right) => rank(left.id) - rank(right.id))
   }, [sources, facets])
 
-  const playLocal = (item: LibraryItem, positionMs = 0) =>
-    onPlay({
-      source: item.source,
-      id: item.id,
-      title: item.meta.title,
-      url: `/api/library/media/${item.fileName}`,
-      startAtMs: positionMs,
-    })
+  const playLocal = async (item: ContinueItem) => {
+    try {
+      const [resolve, progress] = await Promise.all([
+        api.play('local', item.key),
+        api.progress('local', item.key).catch(() => null),
+      ])
+      onPlay({
+        source: 'local',
+        id: item.key,
+        title: item.meta.title,
+        url: resolve.url,
+        startAtMs: progress?.positionMs ?? item.progress.positionMs,
+      })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
-  const playRecent = async (item: LibraryItem) => {
-    const progress = await api.progress(item.source, item.id).catch(() => null)
-    playLocal(item, progress?.positionMs ?? 0)
+  const playRecent = async (item: VideoSummary) => {
+    try {
+      const [resolve, progress] = await Promise.all([
+        api.play('local', item.id),
+        api.progress('local', item.id).catch(() => null),
+      ])
+      onPlay({
+        source: 'local',
+        id: item.id,
+        title: item.title,
+        url: resolve.url,
+        startAtMs: progress?.positionMs ?? 0,
+      })
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
   useEffect(() => {
@@ -183,7 +205,7 @@ export function HomePage({
               item,
               progressMs: item.progress.positionMs,
               durationMs: item.progress.durationMs,
-              onSelect: () => playLocal(item, item.progress.positionMs),
+              onSelect: () => void playLocal(item),
             }))}
           />
 
@@ -192,7 +214,7 @@ export function HomePage({
             title="为你推荐"
             action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={recent.map((item) => ({
-              item,
+              summary: item,
               onSelect: () => void playRecent(item),
             }))}
           />
@@ -229,7 +251,8 @@ export function HomePage({
 }
 
 interface ShelfEntry {
-  item: LibraryItem
+  item?: ContinueItem
+  summary?: VideoSummary
   progressMs?: number
   durationMs?: number | null
   onSelect: () => void
@@ -263,8 +286,27 @@ function Shelf({
       <div className="shelf-scroll flex gap-5 overflow-x-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map((entry, index) => (
           <WideCard
-            key={entry.item.key}
-            item={entry.item}
+            key={entry.item?.key ?? entry.summary?.id}
+            card={
+              entry.item
+                ? {
+                    title: entry.item.meta.title,
+                    coverUrl: entry.item.coverFile
+                      ? `/api/library/media/${entry.item.coverFile}`
+                      : api.image(entry.item.source, entry.item.meta.coverUrl),
+                    quality: entry.item.quality,
+                    category: entry.item.category ?? entry.item.source,
+                    durationSec: entry.item.meta.durationSec,
+                    sizeBytes: entry.item.sizeBytes,
+                  }
+                : {
+                    title: entry.summary?.title ?? '',
+                    coverUrl: api.image('local', entry.summary?.coverUrl),
+                    quality: entry.summary?.note,
+                    category: 'local',
+                    durationSec: entry.summary?.durationSec,
+                  }
+            }
             progressMs={entry.progressMs}
             durationMs={entry.durationMs}
             focusKey={`HOME-${id.toUpperCase()}-${index}`}

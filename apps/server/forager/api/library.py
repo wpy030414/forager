@@ -125,16 +125,6 @@ async def continue_watching(request: Request, limit: int = 12) -> list[dict[str,
     return items
 
 
-@router.get("/recent")
-async def recent_items(request: Request, limit: int = 12) -> list[dict[str, Any]]:
-    """最近入库：首页推荐位用，避免全量元数据回传。"""
-    size = min(max(int(limit or 12), 1), 50)
-    rows = request.app.state.db.query(
-        "SELECT * FROM library ORDER BY downloaded_at DESC LIMIT ?", (size,)
-    )
-    return [_row_to_item(row) for row in rows]
-
-
 @router.get("/facets")
 async def facets(request: Request) -> dict[str, Any]:
     """库的分面：来源与分区（分区来自源站，不是 tag）。"""

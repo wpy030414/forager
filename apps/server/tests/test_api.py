@@ -213,8 +213,8 @@ def test_home_continue_and_recent(tmp_path) -> None:
         assert [item["key"] for item in cont] == ["hanime1:1"]
         assert cont[0]["progress"]["positionMs"] == 60000
 
-        recent = client.get("/api/library/recent?limit=1").json()
-        assert len(recent) == 1
+        recent = client.get("/api/sources/local/list").json()
+        assert recent["items"][0]["id"] == "hanime1:1"
 
 
 def test_library_facets_and_filters(tmp_path) -> None:
