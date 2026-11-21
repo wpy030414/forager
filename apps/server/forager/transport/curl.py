@@ -73,6 +73,7 @@ def _common_args(
     range_: str | None,
     timeout: float,
     resolve_map: dict[str, str] | None,
+    total_timeout: bool = True,
 ) -> list[str]:
     args = [
         "-sS",
@@ -81,9 +82,12 @@ def _common_args(
         "3",
         "--connect-timeout",
         "10",
-        "--max-time",
-        str(int(timeout)),
     ]
+    if total_timeout:
+        args += ["--max-time", str(int(timeout))]
+    else:
+        # 媒体流不设总时限：只在下行长期停滞时断开，慢速大文件不冤死
+        args += ["--speed-limit", "1024", "--speed-time", "30"]
     if proxy:
         args += ["--proxy", proxy]
     else:
@@ -241,7 +245,7 @@ async def open_stream(
     header_file = workdir / "headers.txt"
     args = _common_args(
         headers=headers, proxy=proxy, range_=range_,
-        timeout=timeout, resolve_map=resolve_map,
+        timeout=timeout, resolve_map=resolve_map, total_timeout=False,
     )
     args += ["-D", str(header_file), "-o", "-", url]
 

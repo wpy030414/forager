@@ -55,3 +55,23 @@ def test_enqueue_is_idempotent(tmp_path) -> None:
     second = downloader.enqueue("ghost", "1")
     assert first is second
     db.close()
+
+
+def test_enqueue_skips_items_already_in_library(tmp_path) -> None:
+    db = Database(tmp_path / "data")
+    db.execute(
+        "INSERT INTO library (key, source, video_id, meta_json, quality, file_name, "
+        "cover_file, size_bytes, downloaded_at, category) "
+        "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+        ("ghost:1", "ghost", "1", '{"title": "旧条目"}', "480P", "ghost-1-480P.mp4", 1, "2026-01-01T00:00:00Z", "测试"),
+    )
+    downloader = Downloader(db, {}, concurrency=1)
+
+    job = downloader.enqueue("ghost", "1", "1080P")
+
+    assert job["status"] == "done"
+    assert job["fromLibrary"] is True
+    assert job["quality"] == "480P"
+    assert job["title"] == "旧条目"
+    assert downloader._queue.empty()
+    db.close()

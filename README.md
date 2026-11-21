@@ -21,7 +21,7 @@
 | 类型 | 含义 | 支持的源 |
 |------|------|----------|
 | `query` | 关键词持续搜索 | 全部 |
-| `partition` | 某分区的新热门 | Bilibili（22 个主分区）/ Hanime1（站内 genre） |
+| `partition` | 某分区的新热门 | Bilibili（UGC 主分区排行榜；番剧/国创/综艺走 PGC 放送时间表）/ Hanime1（站内 genre） |
 | `uploader` | 某发布者的全部作品 | Bilibili（mid）/ Hanime1（名称） |
 | `favorites` | 我的收藏夹 → 自动展开成发布者子线索 | Bilibili（需登录） |
 | `following` | 我的关注 → 自动展开成发布者子线索 | Bilibili（需登录） |

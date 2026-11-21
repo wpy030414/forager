@@ -54,6 +54,12 @@ QN_LABELS: dict[int, str] = {
 }
 LABEL_QN: dict[str, int] = {label: qn for qn, label in QN_LABELS.items()}
 
+#: 没有 UGC 主分区的 PGC 分区：tid → season_type（时间表/季度索引用）
+PGC_SEASON_TYPES: dict[str, int] = {"13": 1, "167": 4, "71": 7}
+#: PGC 分区连续发现：时间表回看天数；时间表为空时回退展开的季度数
+PGC_LOOKBACK_DAYS = 3
+PGC_SEASON_LIMIT = 8
+
 #: 主分区（tid → 名称）。B 站分区体系相对稳定，用静态表避免多打一次接口
 PARTITIONS: list[dict[str, str]] = [
     {"id": "1", "name": "动画"},
@@ -83,8 +89,10 @@ PARTITIONS: list[dict[str, str]] = [
 API_ERRORS: dict[int, str] = {
     -101: "Bilibili 未登录（需要 SESSDATA 才能访问高清晰度）",
     -352: "Bilibili 风控校验失败（-352）：检查 Cookie/buvid3，或稍后重试",
+    -400: "Bilibili 接口参数错误（分区可能不受排行榜接口支持）",
     -412: "Bilibili 请求被拦截（-412）：请求过于频繁，请调大 HANIME1/BILIBILI 的请求间隔",
     -404: "稿件不存在或已删除",
+    -10403: "该内容在当前地区不可观看（或需要大会员）",
     62002: "稿件不可见（可能被删除或设为私密）",
     62004: "稿件审核中",
     62012: "仅 UP 主自己可见",
@@ -216,6 +224,182 @@ def parse_bvid(vid: str) -> tuple[str | None, int | None]:
     return None, None
 
 
+def parse_ep_id(vid: str) -> int | None:
+    """番剧剧集 ID：接受 ep123 / 番剧链接；纯数字仍按 UGC 稿件处理。"""
+    raw = (vid or "").strip()
+    match = re.search(r"(?:^|[^a-z])ep(\d+)", raw, re.IGNORECASE) or re.search(
+        r"/bangumi/play/ep(\d+)", raw, re.IGNORECASE
+    )
+    return int(match.group(1)) if match else None
+
+
+def parse_pgc_timeline(
+    days: list[dict[str, Any]] | None,
+    *,
+    source_id: str = "bilibili",
+    now: int | None = None,
+) -> list[dict[str, Any]]:
+    """时间表 → 已播出的剧集摘要（未发布与未来剧集一律跳过）。"""
+    moment = int(now if now is not None else time.time())
+    items: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    for day in days or []:
+        for ep in day.get("episodes") or []:
+            ep_id = int(ep.get("episode_id") or 0)
+            if not ep_id or ep_id in seen or not ep.get("published"):
+                continue
+            pub_ts = int(ep.get("pub_ts") or 0)
+            if pub_ts > moment:
+                continue
+
+            seen.add(ep_id)
+            title = _text(ep.get("title"))
+            index = _text(ep.get("pub_index"))
+            text = " · ".join(part for part in (title, index) if part) or f"ep{ep_id}"
+            item: dict[str, Any] = {
+                "id": f"ep{ep_id}",
+                "source": source_id,
+                "title": text,
+            }
+            cover = ep.get("ep_cover") or ep.get("cover")
+            if cover:
+                item["coverUrl"] = _https(cover)
+            if pub_ts:
+                item["publishedAt"] = pub_ts
+            items.append(item)
+
+    items.sort(key=lambda item: int(item.get("publishedAt") or 0), reverse=True)
+    return items
+
+
+def _pgc_title(season: dict[str, Any], episode: dict[str, Any]) -> str:
+    ep_id = int(episode.get("ep_id") or episode.get("id") or 0)
+    parts = [_text(season.get("title"))]
+    ep_no = _text(episode.get("title"))
+    if ep_no:
+        parts.append(f"第{ep_no}话")
+    ep_name = _text(episode.get("long_title"))
+    if ep_name:
+        parts.append(ep_name)
+    return " · ".join(part for part in parts if part) or f"ep{ep_id}"
+
+
+def _pgc_cover(season: dict[str, Any], episode: dict[str, Any]) -> str | None:
+    cover = episode.get("cover") or season.get("cover") or season.get("bkg_cover")
+    if cover and not str(cover).lower().endswith(".gif"):
+        return _https(str(cover))
+    if season.get("cover"):
+        return _https(str(season["cover"]))
+    return None
+
+
+def _pgc_duration_sec(episode: dict[str, Any]) -> int | None:
+    duration = episode.get("duration")
+    if not isinstance(duration, (int, float)) or not duration:
+        return None
+    # PGC 的 duration 是毫秒；少数接口直接给秒
+    return int(duration // 1000) if duration > 1000 else int(duration)
+
+
+def build_pgc_summary(source_id: str, season: dict[str, Any], episode: dict[str, Any]) -> dict[str, Any]:
+    """季度 + 剧集 → 线索树使用的条目摘要。"""
+    ep_id = int(episode.get("ep_id") or episode.get("id") or 0)
+    item: dict[str, Any] = {
+        "id": f"ep{ep_id}",
+        "source": source_id,
+        "title": _pgc_title(season, episode),
+    }
+    cover = _pgc_cover(season, episode)
+    if cover:
+        item["coverUrl"] = cover
+    duration = _pgc_duration_sec(episode)
+    if duration:
+        item["durationSec"] = duration
+    views = (episode.get("stat") or {}).get("view") or (season.get("stat") or {}).get("views")
+    if views is not None:
+        item["views"] = views
+    pub_ts = int(episode.get("pub_time") or 0)
+    if pub_ts:
+        item["publishedAt"] = pub_ts
+    return item
+
+
+def latest_pgc_episode(
+    season: dict[str, Any], *, now: int | None = None
+) -> dict[str, Any] | None:
+    """季度内已播出的最新一集（时间表不可用时的回退）。"""
+    moment = int(now if now is not None else time.time())
+    episodes = [
+        ep
+        for ep in season.get("episodes") or []
+        if int(ep.get("pub_time") or 0) <= moment
+    ]
+    if not episodes:
+        return None
+    return max(episodes, key=lambda ep: int(ep.get("pub_time") or 0))
+
+
+def build_pgc_detail(
+    source_id: str,
+    season: dict[str, Any],
+    episode: dict[str, Any],
+    play: dict[str, Any],
+    *,
+    web: str = WEB,
+) -> dict[str, Any]:
+    """PGC playurl 响应 → 与 UGC 同构的详情（id 统一用 ep<n>）。"""
+    qualities = build_qualities(play)
+    if not qualities:
+        raise SourceError("播放地址解析失败（可能需要大会员或该剧集受限）", 502)
+
+    # PGC 的 durl 只给「实际下发的清晰度」，把 auto 标签校正为真实值
+    actual_qn = play.get("quality")
+    if actual_qn in QN_LABELS:
+        for quality in qualities:
+            if quality.get("label") == "auto":
+                quality["label"] = QN_LABELS[actual_qn]
+
+    ep_id = int(episode.get("ep_id") or episode.get("id") or 0)
+    best = qualities[0]
+    detail: dict[str, Any] = {
+        "id": f"ep{ep_id}",
+        "source": source_id,
+        "title": _pgc_title(season, episode),
+        "pageUrl": f"{web}bangumi/play/ep{ep_id}",
+        "streamUrl": best["url"],
+        "streamProxyUrl": (
+            f"/api/sources/{source_id}/stream?v=ep{ep_id}&quality={best['label']}"
+        ),
+        "qualities": qualities,
+        "related": [],
+        "epId": ep_id,
+        "seasonId": season.get("season_id"),
+        "bvid": episode.get("bvid"),
+    }
+
+    category = _text(season.get("season_type_name")) or "番剧"
+    detail["category"] = category
+    detail["tags"] = [category]
+
+    cover = _pgc_cover(season, episode)
+    if cover:
+        detail["coverUrl"] = cover
+    duration = _pgc_duration_sec(episode)
+    if duration:
+        detail["durationSec"] = duration
+    views = (episode.get("stat") or {}).get("view") or (season.get("stat") or {}).get("views")
+    if views is not None:
+        detail["views"] = views
+    uploader = (season.get("up_info") or {}).get("uname")
+    if uploader:
+        detail["uploader"] = uploader
+    pub_ts = int(episode.get("pub_time") or 0)
+    if pub_ts:
+        detail["uploadDate"] = time.strftime("%Y-%m-%d", time.localtime(pub_ts))
+    return detail
+
+
 # ---- 适配器 ----
 
 class BilibiliSource(BaseSource):
@@ -280,6 +464,12 @@ class BilibiliSource(BaseSource):
         return {"items": items, "page": max(1, int(page or 1)), "hasMore": bool(items)}
 
     async def detail(self, vid: str) -> dict[str, Any]:
+        ep_id = parse_ep_id(vid)
+        if ep_id is not None:
+            season, episode = await self._pgc_episode(ep_id)
+            play = await self._pgc_play(ep_id, episode, qn=127, fnval=4048)
+            return build_pgc_detail(self.id, season, episode, play)
+
         bvid, aid = parse_bvid(vid)
         if not bvid and not aid:
             raise SourceError(f"无效的视频 ID：{vid}", 400)
@@ -298,6 +488,20 @@ class BilibiliSource(BaseSource):
 
     async def stream_url(self, vid: str, quality: str | None = None) -> str:
         """浏览器的 `<video>` 只能吃渐进式单文件，因此这里走 fnval=1 的 durl。"""
+        ep_id = parse_ep_id(vid)
+        if ep_id is not None:
+            _, episode = await self._pgc_episode(ep_id)
+            play = await self._pgc_play(
+                ep_id, episode, qn=LABEL_QN.get(quality or "", 80), fnval=1
+            )
+            for segment in play.get("durl") or []:
+                if segment.get("url"):
+                    return segment["url"]
+            qualities = build_qualities(play)
+            if qualities:
+                return qualities[0]["url"]
+            raise SourceError("该剧集没有可用的播放地址（可能需要大会员）", 404)
+
         bvid, aid = parse_bvid(vid)
         if not bvid and not aid:
             raise SourceError(f"无效的视频 ID：{vid}", 400)
@@ -328,7 +532,15 @@ class BilibiliSource(BaseSource):
         return PARTITIONS
 
     async def partition_items(self, value: str, page: int = 1) -> dict[str, Any]:
-        """分区发现：用排行榜，天然按热度排序，适合持续盯。"""
+        """分区发现：UGC 走排行榜；番剧/国创/综艺走 PGC 时间表。
+
+        番剧、国创、综艺在 UGC 排行榜里没有对应 rid（会回 -400），
+        因此按 season_type 从时间表取「已播出的剧集」，条目 id 统一为 ep<n>。
+        """
+        season_type = PGC_SEASON_TYPES.get(str(value or "").strip())
+        if season_type is not None:
+            return await self._pgc_partition_items(season_type)
+
         data = await self._get(
             "/x/web-interface/ranking/v2", {"rid": value or "0", "type": "all"}, ttl_ms=300_000
         )
@@ -436,6 +648,103 @@ class BilibiliSource(BaseSource):
 
     # ---- 内部请求 ----
 
+    async def _pgc_partition_items(self, season_type: int) -> dict[str, Any]:
+        """PGC 分区：优先时间表（一次请求拿到剧集），无排期时回退季度索引。"""
+        days = await self._json(
+            f"{API}/pgc/web/timeline?"
+            + urlencode({"types": season_type, "before": PGC_LOOKBACK_DAYS, "after": 0}),
+            180_000,
+            root="result",
+        )
+        items = parse_pgc_timeline(days if isinstance(days, list) else [], source_id=self.id)
+        if not items:
+            items = await self._pgc_latest_episodes(season_type)
+        return {"items": items, "page": 1, "hasMore": False}
+
+    async def _pgc_latest_episodes(self, season_type: int) -> list[dict[str, Any]]:
+        """时间表不可用（如综艺）时，从季度索引逐个取最新一集。"""
+        data = await self._json(
+            f"{API}/pgc/season/index/result?"
+            + urlencode(
+                {
+                    "season_type": season_type,
+                    "page": 1,
+                    "pagesize": 20,
+                    "order": 0,
+                    "sort": 0,
+                    "type": 1,
+                }
+            ),
+            600_000,
+            root="data",
+        )
+        items: list[dict[str, Any]] = []
+        for season in (data or {}).get("list", [])[:PGC_SEASON_LIMIT]:
+            season_id = season.get("season_id")
+            if not season_id:
+                continue
+            try:
+                detail = await self._json(
+                    f"{API}/pgc/view/web/season?season_id={season_id}", 600_000, root="result"
+                )
+            except SourceError as exc:
+                log.info("[bilibili] 季度 %s 详情失败，跳过：%s", season_id, exc)
+                continue
+            episode = latest_pgc_episode(detail or {})
+            if episode is not None:
+                items.append(build_pgc_summary(self.id, detail, episode))
+        items.sort(key=lambda item: int(item.get("publishedAt") or 0), reverse=True)
+        return items
+
+    async def _pgc_episode(self, ep_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        season = await self._json(
+            f"{API}/pgc/view/web/season?{urlencode({'ep_id': ep_id})}",
+            300_000,
+            root="result",
+        )
+        if not season:
+            raise SourceError("番剧剧集不存在或已下架", 404)
+        episode = next(
+            (ep for ep in season.get("episodes") or [] if int(ep.get("ep_id") or 0) == ep_id),
+            None,
+        )
+        if episode is None:
+            for section in season.get("section") or []:
+                episode = next(
+                    (
+                        ep
+                        for ep in section.get("episodes") or []
+                        if int(ep.get("ep_id") or 0) == ep_id
+                    ),
+                    None,
+                )
+                if episode is not None:
+                    break
+        if episode is None:
+            raise SourceError("番剧剧集不存在或已下架", 404)
+        return season, episode
+
+    async def _pgc_play(
+        self, ep_id: int, episode: dict[str, Any], *, qn: int, fnval: int
+    ) -> dict[str, Any]:
+        params = {
+            "ep_id": ep_id,
+            "cid": episode.get("cid"),
+            "avid": episode.get("aid"),
+            "bvid": episode.get("bvid"),
+            "qn": qn,
+            "fnval": fnval,
+            "fnver": 0,
+            "fourk": 1,
+        }
+        query = urlencode({k: v for k, v in params.items() if v not in (None, "")})
+        return (
+            await self._json(
+                f"{API}/pgc/player/web/playurl?{query}", 120_000, root="result"
+            )
+            or {}
+        )
+
     async def _view(self, bvid: str | None, aid: int | None) -> dict[str, Any]:
         params = {"bvid": bvid} if bvid else {"aid": aid}
         return await self._get("/x/web-interface/view", params)
@@ -457,8 +766,13 @@ class BilibiliSource(BaseSource):
         return await self._json(f"{API}{path}?{sign_query(params, mixin)}", ttl_ms)
 
     async def _json(
-        self, url: str, ttl_ms: int, *, allow: set[int] | frozenset[int] = frozenset()
-    ) -> dict[str, Any]:
+        self,
+        url: str,
+        ttl_ms: int,
+        *,
+        allow: set[int] | frozenset[int] = frozenset(),
+        root: str = "data",
+    ) -> Any:
         text = await self.client.fetch_html(url, ttl_ms=ttl_ms)
         try:
             payload = json.loads(text)
@@ -471,7 +785,10 @@ class BilibiliSource(BaseSource):
                 API_ERRORS.get(code, payload.get("message") or f"接口错误 {code}"),
                 404 if code == -404 else 502,
             )
-        return payload.get("data") or {}
+        # UGC 用 data，PGC 用 result；result 可能是对象（详情）也可能是数组（时间表）
+        return payload.get(root) if payload.get(root) is not None else (
+            {} if root == "data" else None
+        )
 
     async def _ensure_mixin(self) -> str:
         async with self._lock:

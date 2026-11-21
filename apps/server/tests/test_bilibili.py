@@ -9,10 +9,16 @@ import pytest
 from forager.sources.base import SourceError
 from forager.sources.bilibili import (
     MIXIN_KEY_ENC_TAB,
+    BilibiliSource,
     build_detail,
+    build_pgc_detail,
+    build_pgc_summary,
     build_qualities,
+    latest_pgc_episode,
     mixin_key,
     parse_bvid,
+    parse_ep_id,
+    parse_pgc_timeline,
     sign_query,
     _duration_seconds,
     _https,
@@ -150,3 +156,173 @@ def test_build_qualities_prefers_avc() -> None:
     qualities = build_qualities(payload)
     assert len(qualities) == 1
     assert qualities[0]["url"].endswith("avc.m4s")
+
+
+# ---- PGC（番剧 / 国创 / 综艺）----
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("ep7702239", 7702239),
+        ("EP123", 123),
+        ("https://www.bilibili.com/bangumi/play/ep26988?spm=1", 26988),
+        ("ss33415", None),
+        ("BV1Zx411v7DF", None),
+        ("7702239", None),
+    ],
+)
+def test_parse_ep_id(raw: str, expected: int | None) -> None:
+    assert parse_ep_id(raw) == expected
+
+
+def test_parse_pgc_timeline_filters_and_sorts() -> None:
+    days = [
+        {
+            "episodes": [
+                {
+                    "episode_id": 1,
+                    "published": 1,
+                    "pub_ts": 100,
+                    "title": "旧番",
+                    "pub_index": "第1话",
+                    "cover": "http://i0.hdslb.com/a.jpg",
+                },
+                {"episode_id": 2, "published": 0, "pub_ts": 300, "title": "未播出"},
+                {"episode_id": 3, "published": 1, "pub_ts": 900, "title": "未来"},
+            ]
+        },
+        {
+            "episodes": [
+                {
+                    "episode_id": 4,
+                    "published": 1,
+                    "pub_ts": 200,
+                    "title": "新番",
+                    "pub_index": "第2话",
+                    "ep_cover": "//i0.hdslb.com/b.jpg",
+                },
+                {"episode_id": 1, "published": 1, "pub_ts": 100, "title": "重复"},
+            ]
+        },
+    ]
+    items = parse_pgc_timeline(days, now=500)
+    assert [item["id"] for item in items] == ["ep4", "ep1"]
+    assert items[0]["title"] == "新番 · 第2话"
+    assert items[0]["coverUrl"] == "https://i0.hdslb.com/b.jpg"
+
+
+def test_build_pgc_summary() -> None:
+    season = {"title": "校园迷糊大王", "cover": "https://x/season.png"}
+    episode = {
+        "ep_id": 26988,
+        "title": "1",
+        "long_title": "浩浩荡荡的小鹿乱撞",
+        "duration": 1405753,
+        "pub_time": 1282406160,
+        "cover": "https://x/ep.gif",
+        "stat": {"view": 999},
+    }
+    item = build_pgc_summary("bilibili", season, episode)
+    assert item["id"] == "ep26988"
+    assert item["title"] == "校园迷糊大王 · 第1话 · 浩浩荡荡的小鹿乱撞"
+    assert item["durationSec"] == 1405
+    assert item["coverUrl"] == "https://x/season.png"
+    assert item["views"] == 999
+
+
+def test_latest_pgc_episode_skips_future() -> None:
+    season = {
+        "episodes": [
+            {"ep_id": 1, "pub_time": 100},
+            {"ep_id": 2, "pub_time": 400},
+            {"ep_id": 3, "pub_time": 900},
+        ]
+    }
+    assert latest_pgc_episode(season, now=500)["ep_id"] == 2
+    assert latest_pgc_episode({"episodes": []}, now=500) is None
+
+
+def test_build_pgc_detail_uses_real_quality() -> None:
+    season = {
+        "season_id": 1446,
+        "title": "校园迷糊大王",
+        "season_type_name": "番剧",
+        "cover": "https://x/season.png",
+        "stat": {"views": 123},
+        "up_info": {"uname": "某 UP"},
+    }
+    episode = {
+        "ep_id": 26988,
+        "aid": 12349185,
+        "bvid": "BV1Zx411v7DF",
+        "cid": 20340857,
+        "title": "1",
+        "long_title": "浩浩荡荡的小鹿乱撞",
+        "duration": 1405753,
+        "pub_time": 1282406160,
+    }
+    play = {"quality": 32, "durl": [{"url": "https://upos.example/480.mp4"}]}
+
+    detail = build_pgc_detail("bilibili", season, episode, play)
+    assert detail["id"] == "ep26988"
+    assert detail["pageUrl"] == "https://www.bilibili.com/bangumi/play/ep26988"
+    assert detail["qualities"][0]["label"] == "480P"
+    assert detail["streamProxyUrl"] == "/api/sources/bilibili/stream?v=ep26988&quality=480P"
+    assert detail["durationSec"] == 1405
+    assert detail["category"] == "番剧"
+    assert detail["uploader"] == "某 UP"
+    assert detail["views"] == 123
+
+
+def test_build_pgc_detail_without_streams_raises() -> None:
+    with pytest.raises(SourceError, match="播放地址解析失败"):
+        build_pgc_detail("bilibili", {"title": "x"}, {"ep_id": 1}, {})
+
+
+@pytest.mark.asyncio
+async def test_partition_uses_pgc_timeline_for_tid_13(monkeypatch) -> None:
+    source = BilibiliSource(client=None)  # 纯路由测试，不触网
+    calls: list[tuple[str, str]] = []
+
+    async def fake_json(url: str, ttl_ms: int, *, allow=frozenset(), root: str = "data"):
+        calls.append((url, root))
+        assert "/pgc/web/timeline" in url
+        assert "types=1" in url
+        return [
+            {
+                "episodes": [
+                    {
+                        "episode_id": 7702239,
+                        "published": 1,
+                        "pub_ts": 1794967200,
+                        "title": "小羊肖恩 第七季",
+                        "pub_index": "第17话~第18话",
+                        "cover": "https://x/cover.jpg",
+                    }
+                ]
+            }
+        ]
+
+    monkeypatch.setattr(source, "_json", fake_json)
+    result = await source.partition_items("13")
+
+    assert result["items"][0]["id"] == "ep7702239"
+    assert len(calls) == 1
+    assert calls[0][1] == "result"
+
+
+@pytest.mark.asyncio
+async def test_partition_keeps_ugc_ranking_for_tid_4(monkeypatch) -> None:
+    source = BilibiliSource(client=None)
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_get(path: str, params=None, ttl_ms: int = 60_000, allow=frozenset()):
+        calls.append((path, params or {}))
+        return {"list": [{"bvid": "BV1xx411c7mD", "title": "某视频"}]}
+
+    monkeypatch.setattr(source, "_get", fake_get)
+    result = await source.partition_items("4")
+
+    assert result["items"][0]["id"] == "BV1xx411c7mD"
+    assert calls[0][0] == "/x/web-interface/ranking/v2"
+    assert calls[0][1]["rid"] == "4"

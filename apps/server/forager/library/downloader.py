@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import re
 from pathlib import Path
@@ -70,6 +71,35 @@ class Downloader:
         existing = self._jobs.get(key)
         if existing and existing["status"] in {"queued", "downloading"}:
             return existing
+
+        # 已在库：只记录，不重复下载（同一内容被多条线索发现时尤其重要）
+        row = self.db.query_one(
+            "SELECT meta_json, quality FROM library WHERE key = ?", (key,)
+        )
+        if row is not None:
+            job = existing or {
+                "key": key,
+                "source": source,
+                "id": vid,
+                "title": "",
+                "quality": quality or "auto",
+                "progress": 100,
+                "receivedBytes": 0,
+            }
+            try:
+                title = json.loads(row["meta_json"]).get("title") or ""
+            except (TypeError, ValueError):
+                title = ""
+            job.update(
+                status="done",
+                progress=100,
+                fromLibrary=True,
+                quality=row["quality"] or job["quality"],
+                title=title or job.get("title") or "",
+            )
+            self._jobs[key] = job
+            return job
+
         job: dict[str, Any] = {
             "key": key,
             "source": source,
@@ -150,11 +180,23 @@ class Downloader:
             # 1) 全量元数据快照
             detail = await source.detail(job["id"])
             job["title"] = detail.get("title") or job["id"]
+            qualities = detail.get("qualities") or []
             quality = job["quality"]
             if quality == "auto":
-                qualities = detail.get("qualities") or []
                 quality = qualities[0]["label"] if qualities else "auto"
                 job["quality"] = quality
+
+            candidate = next((q for q in qualities if q.get("label") == quality), None)
+            if candidate is None and qualities:
+                # 请求的清晰度源站没有给（未登录/大会员/片源限制）：以真实下发值为准，
+                # 不能继续打着请求值入库，否则 8K 的标签会盖在 480P 文件上。
+                candidate = qualities[0]
+                quality = candidate.get("label") or quality
+                job["quality"] = quality
+                job["qualityFallback"] = True
+                self._log(
+                    f"[download] {job['key']} 请求清晰度不可用，降级为 {quality}"
+                )
 
             stem = _file_stem(f"{job['source']}-{job['id']}-{quality}")
             file_name = f"{stem}.mp4"
@@ -164,8 +206,6 @@ class Downloader:
             parts.append(part_path)
 
             # 2) 下载：dash 音视频分离 → 双轨 + ffmpeg 合并；durl / 直链 → 单文件落盘
-            qualities = detail.get("qualities") or []
-            candidate = next((q for q in qualities if q.get("label") == quality), None)
             audio_url = (candidate or {}).get("audioUrl")
             video_url = (candidate or {}).get("url") or await source.stream_url(job["id"], quality)
 
@@ -209,7 +249,7 @@ class Downloader:
                 "downloaded_at = excluded.downloaded_at, category = excluded.category",
                 (
                     job["key"], job["source"], job["id"],
-                    __import__("json").dumps(detail, ensure_ascii=False),
+                    json.dumps(detail, ensure_ascii=False),
                     quality, file_name, cover_file, item_size, now_iso(), category,
                 ),
             )
@@ -249,6 +289,8 @@ class Downloader:
         """把一条轨下到 path；进度映射到 [lo, hi] 区间。"""
         handle = await source.client.stream(url)
         try:
+            if handle.status >= 400:
+                raise RuntimeError(f"上游返回 HTTP {handle.status}")
             total = handle.content_length
             if total:
                 job["totalBytes"] = (job.get("totalBytes") or 0) + total

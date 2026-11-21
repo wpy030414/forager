@@ -28,7 +28,7 @@
 | `transport/client.py` | 统一 UA/Referer/Cookie、每主机串行频控、HTML 短 TTL 缓存、DoH 解析 + `--resolve` |
 | `sources/base.py` | 源契约：list/search/detail/stream_url + 线索发现能力 + 配置字段声明 |
 | `sources/hanime1.py` | Blade SSR 页面解析（选择器表 + 卡片/详情） |
-| `sources/bilibili.py` | WBI 签名、buvid3 自取、dash 双轨、durl 直放、分区/UP主/收藏/关注、扫码登录 |
+| `sources/bilibili.py` | WBI 签名、buvid3 自取、dash 双轨、durl 直放、分区/UP主/收藏/关注、PGC 番剧剧集、扫码登录 |
 | `library/downloader.py` | 单并发队列；dash 双轨 + ffmpeg remux；`.part` 原子落盘；元数据全量快照 |
 | `library/cache.py` | 元数据 7 天 + 直链单独判过期；封面按 URL 哈希落盘 |
 | `subs/scheduler.py` | 线索树：巡检、差集入队、收藏/关注展开子节点、进度统计 |
