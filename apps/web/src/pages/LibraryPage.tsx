@@ -59,13 +59,7 @@ export function LibraryPage({
   return (
     <div className="space-y-8 px-12 pb-24 pt-28">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">库</h1>
-          <p className="mt-1 text-sm text-zinc-400">本地已归档内容 · 共 {facets?.total ?? 0} 条</p>
-        </div>
-        <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-zinc-300">
-          当前筛选：{items.length} 条
-        </span>
+        <h1 className="text-2xl font-bold text-white">库</h1>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -108,27 +102,21 @@ export function LibraryPage({
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
       {loading && items.length === 0 ? (
-        <p className="text-sm text-zinc-500">读取中…</p>
-      ) : items.length === 0 ? (
-        <EmptyState filtered={Boolean(source || category)} />
-      ) : (
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {Array.from({ length: 10 }).map((_, index) => (
+            <div
+              key={index}
+              className="aspect-[3/4] animate-pulse rounded-2xl bg-white/[0.06]"
+            />
+          ))}
+        </div>
+      ) : items.length === 0 ? null : (
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {items.map((item) => (
             <LibraryCard key={item.key} item={item} onPlay={() => void play(item)} />
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-function EmptyState({ filtered }: { filtered: boolean }) {
-  return (
-    <div className="rounded-3xl border border-dashed border-white/10 px-6 py-16 text-center">
-      <p className="text-sm text-zinc-400">{filtered ? '当前筛选下没有内容' : '库还是空的'}</p>
-      <p className="mt-2 text-xs text-zinc-500">
-        去「线索」加一条线索，或在已有线索上浏览/同步开始采集
-      </p>
     </div>
   )
 }

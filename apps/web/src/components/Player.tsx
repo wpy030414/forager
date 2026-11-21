@@ -134,9 +134,6 @@ export function Player({
       >
         <div className="flex items-start justify-between">
           <h1 className="max-w-3xl text-xl font-semibold text-white/95 drop-shadow">{title}</h1>
-          <span className="rounded-lg bg-white/10 px-3 py-1 text-sm text-white/80 backdrop-blur">
-            Esc 返回
-          </span>
         </div>
 
         <div className="space-y-3">
@@ -148,9 +145,7 @@ export function Player({
           </div>
           <div className="flex items-center justify-between text-sm tabular-nums text-white/80">
             <span>{clock(position)}</span>
-            <span className="text-white/60">
-              {playing ? '▶ 播放中' : '⏸ 已暂停'} · ←/→ 快退/快进 10s · 空格 暂停
-            </span>
+            <span className="text-white/60">{playing ? '▶' : '⏸'}</span>
             <span>{clock(duration)}</span>
           </div>
         </div>

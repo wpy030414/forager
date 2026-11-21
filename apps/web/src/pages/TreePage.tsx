@@ -48,7 +48,6 @@ export function TreePage() {
   const [picker, setPicker] = useState<VideoDetail>()
   const [jobs, setJobs] = useState<DownloadJob[]>([])
   const [libraryKeys, setLibraryKeys] = useState<Set<string>>(new Set())
-  const [notice, setNotice] = useState<string>()
 
   const loadTree = useCallback(async () => {
     try {
@@ -93,12 +92,6 @@ export function TreePage() {
     return () => clearInterval(id)
   }, [loadLibrary])
 
-  useEffect(() => {
-    if (!notice) return
-    const id = setTimeout(() => setNotice(undefined), 4000)
-    return () => clearTimeout(id)
-  }, [notice])
-
   const selected = useMemo(() => findNode(tree, selectedId), [tree, selectedId])
 
   useEffect(() => {
@@ -126,10 +119,7 @@ export function TreePage() {
   }, [])
 
   const selectNode = (node: TreeNode) => {
-    if (EXPAND_KINDS.has(node.kind)) {
-      setNotice('收藏/关注线索会在同步时自动展开成发布者线索')
-      return
-    }
+    if (EXPAND_KINDS.has(node.kind)) return
     if (selectedId === node.id) {
       setSelectedId(null)
       setItems([])
@@ -145,10 +135,9 @@ export function TreePage() {
   const sync = async (node: TreeNode) => {
     setBusyId(node.id)
     try {
-      const res = await api.syncNode(node.id)
-      setNotice(`同步完成，新入队 ${res.enqueued} 条`)
+      await api.syncNode(node.id)
     } catch (e) {
-      setNotice((e as Error).message)
+      setError((e as Error).message)
     } finally {
       setBusyId(null)
       void loadTree()
@@ -160,13 +149,12 @@ export function TreePage() {
     setBusyId(node.id)
     try {
       await api.deleteNode(node.id)
-      setNotice(`已删除线索「${node.title}」`)
       if (selectedId === node.id) {
         setSelectedId(null)
         setItems([])
       }
     } catch (e) {
-      setNotice((e as Error).message)
+      setError((e as Error).message)
     } finally {
       setBusyId(null)
       void loadTree()
@@ -175,16 +163,10 @@ export function TreePage() {
 
   const openOnline = async (video: VideoSummary) => {
     try {
-      if (libraryKeys.has(jobKey(video.source, video.id))) {
-        setNotice(`已在本地库：${video.title}`)
-        return
-      }
+      if (libraryKeys.has(jobKey(video.source, video.id))) return
       const detail = await api.detail(video.source, video.id)
       const episodes = detail.episodes ?? []
-      if (video.kind === 'series' && episodes.length === 0) {
-        setNotice('该系列暂无已上线剧集')
-        return
-      }
+      if (video.kind === 'series' && episodes.length === 0) return
       // 季度（kind=series）与 UGC 多P 先下探；PGC 单集本身就是一个最小下载单元
       const expandable =
         episodes.length > 0 &&
@@ -194,55 +176,49 @@ export function TreePage() {
         return
       }
       await api.download(video.source, video.id)
-      setNotice(`已加入下载（最高清晰度）：${video.title}`)
       void loadJobs()
     } catch (e) {
-      setNotice((e as Error).message)
+      setError((e as Error).message)
     }
   }
 
   const downloadEpisode = async (source: string, episode: VideoEpisode) => {
     try {
       await api.download(source, episode.id)
-      setNotice(`已加入下载：${episode.title}`)
       void loadJobs()
     } catch (e) {
-      setNotice((e as Error).message)
+      setError((e as Error).message)
     }
   }
 
   const downloadAll = async (source: string, episodes: VideoEpisode[]) => {
-    let ok = 0
     let fail = 0
     for (const episode of episodes) {
       try {
         await api.download(source, episode.id)
-        ok += 1
       } catch {
         fail += 1
       }
     }
-    setNotice(`已加入 ${ok} 集${fail ? `，${fail} 集失败` : ''}`)
+    if (fail) setError(`${fail} 集下载失败`)
     void loadJobs()
   }
 
   const retryJob = async (job: DownloadJob) => {
     try {
       await api.download(job.source, job.id, job.quality === 'auto' ? undefined : job.quality)
-      setNotice(`已重新加入下载：${job.title || job.key}`)
       void loadJobs()
     } catch (e) {
-      setNotice((e as Error).message)
+      setError((e as Error).message)
     }
   }
 
   const cancelJob = async (job: DownloadJob) => {
     try {
       await api.cancelDownload(job.key)
-      setNotice('已取消下载')
       void loadJobs()
     } catch (e) {
-      setNotice((e as Error).message)
+      setError((e as Error).message)
     }
   }
 
@@ -268,12 +244,7 @@ export function TreePage() {
   return (
     <div className="space-y-6 px-8 pb-24 pt-28 xl:px-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">线索</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            选一条线索浏览在线内容 · 点视频按最高清晰度入库 · 总进度 {total.done}/{total.discovered}
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold text-white">线索</h1>
         <div className="w-64">
           <Bar done={total.done} discovered={total.discovered} />
         </div>
@@ -310,7 +281,6 @@ export function TreePage() {
           busy={browseBusy}
           error={browseError}
           hasMore={browseHasMore}
-          page={browsePage}
           jobsByKey={jobsByKey}
           libraryKeys={libraryKeys}
           onRefresh={() => selected && void loadBrowse(selected, 1)}
@@ -329,12 +299,6 @@ export function TreePage() {
           onDownload={(episode) => void downloadEpisode(picker.source, episode)}
           onDownloadAll={(episodes) => downloadAll(picker.source, episodes)}
         />
-      ) : null}
-
-      {notice ? (
-        <div className="fixed bottom-10 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-white px-5 py-2 text-sm font-medium text-black shadow-2xl">
-          {notice}
-        </div>
       ) : null}
     </div>
   )
@@ -355,34 +319,29 @@ function SourceGroup({
   onSync: (node: TreeNode) => void
   onDelete: (node: TreeNode) => void
 }) {
+  if (group.nodes.length === 0) return null
   return (
     <section className="space-y-3">
       <header className="flex items-center justify-between border-b border-white/5 pb-2">
         <h2 className="text-base font-semibold text-white">{group.name}</h2>
         <span className="text-[11px] text-zinc-500">
-          {group.nodes.length} 条线索 · {group.total.done}/{group.total.discovered}
+          {group.nodes.length} · {group.total.done}/{group.total.discovered}
         </span>
       </header>
-      {group.nodes.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-[11px] text-zinc-500">
-          还没有线索
-        </p>
-      ) : (
-        <div className="space-y-3">
-          {group.nodes.map((node) => (
-            <RuleNode
-              key={node.id}
-              node={node}
-              depth={0}
-              selectedId={selectedId}
-              busyId={busyId}
-              onSelect={onSelect}
-              onSync={onSync}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
+      <div className="space-y-3">
+        {group.nodes.map((node) => (
+          <RuleNode
+            key={node.id}
+            node={node}
+            depth={0}
+            selectedId={selectedId}
+            busyId={busyId}
+            onSelect={onSelect}
+            onSync={onSync}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
     </section>
   )
 }
@@ -420,7 +379,7 @@ function RuleNode({
           ].join(' ')}
         >
           <div className="flex items-center gap-2">
-            <StatusDot status={node.status} title={node.lastError ?? undefined} />
+            <StatusDot status={node.status} />
             <span className="truncate text-sm font-semibold text-white">{node.title}</span>
             <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-zinc-400">
               {KIND_LABELS[node.kind] ?? node.kind}
@@ -485,7 +444,6 @@ function BrowsePanel({
   busy,
   error,
   hasMore,
-  page,
   jobsByKey,
   libraryKeys,
   onRefresh,
@@ -497,7 +455,6 @@ function BrowsePanel({
   busy: boolean
   error?: string
   hasMore: boolean
-  page: number
   jobsByKey: Map<string, DownloadJob>
   libraryKeys: Set<string>
   onRefresh: () => void
@@ -505,27 +462,17 @@ function BrowsePanel({
   onOpen: (video: VideoSummary) => void
 }) {
   if (!node) {
-    return (
-      <section className="flex min-h-[320px] items-center justify-center rounded-3xl border border-dashed border-white/10 px-6 text-center">
-        <div>
-          <p className="text-sm text-zinc-400">从左侧选一条线索</p>
-          <p className="mt-2 text-xs text-zinc-500">
-            浏览该线索对应的源站在线内容；点视频即按最高清晰度入库
-          </p>
-        </div>
-      </section>
-    )
+    return <section className="min-h-[320px]" />
   }
 
   return (
     <section className="min-h-[320px] space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
-        <div>
+        <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-white">{node.title}</h2>
-          <p className="mt-0.5 text-[11px] text-zinc-500">
-            {KIND_LABELS[node.kind] ?? node.kind} · 已有 {items.length} 条
-            {busy ? ' · 读取中…' : ''}
-          </p>
+          <span className="text-[11px] text-zinc-500">
+            {KIND_LABELS[node.kind] ?? node.kind} · {items.length}
+          </span>
         </div>
         <Focusable scale="sm" onEnter={busy ? undefined : onRefresh}>
           <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[11px] text-white">
@@ -538,12 +485,15 @@ function BrowsePanel({
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
       {busy && items.length === 0 ? (
-        <p className="py-16 text-center text-sm text-zinc-500">读取中…</p>
-      ) : items.length === 0 ? (
-        <p className="rounded-3xl border border-dashed border-white/10 py-16 text-center text-sm text-zinc-500">
-          这条线索暂时没有可浏览的内容
-        </p>
-      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          {Array.from({ length: 10 }).map((_, index) => (
+            <div
+              key={index}
+              className="aspect-[3/4] animate-pulse rounded-2xl bg-white/[0.06]"
+            />
+          ))}
+        </div>
+      ) : items.length === 0 ? null : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {items.map((video, index) => (
             <PosterCard
@@ -562,8 +512,9 @@ function BrowsePanel({
       {hasMore ? (
         <div className="flex justify-center pt-2">
           <Focusable scale="sm" onEnter={busy ? undefined : onMore}>
-            <span className="rounded-full bg-white/10 px-5 py-2 text-xs font-medium text-white">
-              {busy ? '读取中…' : `加载更多（第 ${page + 1} 页）`}
+            <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-5 py-2 text-xs font-medium text-white">
+              <RefreshCw className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`} />
+              加载更多
             </span>
           </Focusable>
         </div>
@@ -599,7 +550,6 @@ function DownloadPanel({
               进行中 {active} · 已完成 {done} · 失败 {failed}
             </span>
           </span>
-          <span className="text-[11px] text-zinc-500">每个视频独立进度</span>
         </div>
       </Focusable>
 
@@ -729,9 +679,7 @@ function EpisodePicker({
         <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
           <div className="min-w-0">
             <h2 className="truncate text-lg font-semibold text-white">{detail.title}</h2>
-            <p className="mt-1 text-[11px] text-zinc-500">
-              共 {episodes.length} 集 · 点单集下载，或一次加入全部 · 均按最高清晰度
-            </p>
+            <p className="mt-1 text-[11px] text-zinc-500">共 {episodes.length} 集</p>
           </div>
           <Focusable focusKey="PICKER-CLOSE" scale="sm" onEnter={onClose}>
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white">
@@ -752,19 +700,18 @@ function EpisodePicker({
                     : 'bg-white text-black',
               ].join(' ')}
             >
-              <Download className="h-3.5 w-3.5" />
+              {busy ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
               {pending.length === 0
                 ? '全部已入库'
-                : busy
-                  ? '正在加入…'
-                  : confirmAll
-                    ? `确认全部下载 ${pending.length} 集`
-                    : `全部下载（${pending.length} 集）`}
+                : confirmAll
+                  ? `确认全部下载 ${pending.length} 集`
+                  : `全部下载（${pending.length} 集）`}
             </span>
           </Focusable>
-          <span className="text-[11px] text-zinc-500">
-            每个视频独立排队与进度
-          </span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-2">
@@ -827,7 +774,7 @@ function EpisodePicker({
             <div className="flex justify-center py-3">
               <Focusable scale="sm" onEnter={() => setVisible((value) => value + 100)}>
                 <span className="rounded-full bg-white/10 px-4 py-1.5 text-[11px] text-white">
-                  显示更多（还有 {episodes.length - visible} 集）
+                  显示更多
                 </span>
               </Focusable>
             </div>
@@ -892,7 +839,7 @@ function CreateForm({
 
   const submit = async () => {
     if (needsValue && !value.trim()) {
-      setError('请填写线索值')
+      setError('缺少线索值')
       return
     }
     setBusy(true)
@@ -959,7 +906,7 @@ function CreateForm({
                 onChange={(e) => setValue(e.target.value)}
                 className={inputClass}
               >
-                <option value="">选择分区…</option>
+                <option value=""></option>
                 {categoryOptions.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
@@ -970,18 +917,11 @@ function CreateForm({
               <input
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                placeholder={kind === 'uploader' ? '如 123456 或 UP 名' : '如 studio 名'}
                 className={inputClass}
               />
             )}
           </Field>
-        ) : (
-          <Field label="说明">
-            <p className="rounded-xl bg-black/20 px-4 py-2.5 text-xs text-zinc-400">
-              同步时自动展开成发布者子线索
-            </p>
-          </Field>
-        )}
+        ) : null}
 
         <Field label="巡检间隔">
           <select
@@ -1017,8 +957,12 @@ function CreateForm({
         <span className="text-xs text-amber-300">{error ?? ''}</span>
         <Focusable scale="sm" onEnter={busy ? undefined : submit}>
           <span className="flex items-center gap-2 rounded-full bg-white px-5 py-2 text-xs font-semibold text-black">
-            <Plus className="h-3.5 w-3.5" />
-            {busy ? '创建中…' : '创建线索'}
+            {busy ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
+            创建线索
           </span>
         </Focusable>
       </div>
@@ -1038,10 +982,10 @@ function Bar({ done, discovered }: { done: number; discovered: number }) {
   )
 }
 
-function StatusDot({ status, title }: { status: string; title?: string }) {
+function StatusDot({ status }: { status: string }) {
   const color =
     status === 'ok' ? 'bg-emerald-400' : status === 'error' ? 'bg-amber-400' : 'bg-zinc-500'
-  return <span title={title} className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

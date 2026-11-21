@@ -66,7 +66,6 @@ export function HomePage({
   const [facets, setFacets] = useState<Facets>()
   const [tree, setTree] = useState<TreeResponse>()
   const [error, setError] = useState<string>()
-  const [notice, setNotice] = useState<string>()
 
   useEffect(() => {
     let alive = true
@@ -93,12 +92,6 @@ export function HomePage({
       alive = false
     }
   }, [])
-
-  useEffect(() => {
-    if (!notice) return
-    const id = setTimeout(() => setNotice(undefined), 3200)
-    return () => clearTimeout(id)
-  }, [notice])
 
   const platforms = useMemo(() => {
     const active = sources.map((source) => {
@@ -179,9 +172,6 @@ export function HomePage({
           <Shelf
             id="continue"
             title="继续播放"
-            caption="从上次停下的地方接着看"
-            empty="还没有播放记录"
-            emptyAction="去库里挑一部"
             action={{ label: '查看全部', onClick: onOpenLibrary }}
             items={cont.map((item) => ({
               item,
@@ -189,21 +179,16 @@ export function HomePage({
               durationMs: item.progress.durationMs,
               onSelect: () => playLocal(item, item.progress.positionMs),
             }))}
-            onEmpty={onOpenLibrary}
           />
 
           <Shelf
             id="recent"
             title="为你推荐"
-            caption="最近入库"
-            empty="库里还没有新内容"
-            emptyAction="去线索里发现"
             action={{ label: '查看全部', onClick: onOpenLibrary }}
             items={recent.map((item) => ({
               item,
               onSelect: () => void playRecent(item),
             }))}
-            onEmpty={onOpenClues}
           />
         </div>
 
@@ -214,11 +199,7 @@ export function HomePage({
                 key={platform.id}
                 platform={platform}
                 onSelect={() => {
-                  if (platform.soon) {
-                    setNotice(`${platform.label} 源还未接入`)
-                    return
-                  }
-                  onOpenSource(platform.id)
+                  if (!platform.soon) onOpenSource(platform.id)
                 }}
               />
             ))}
@@ -237,12 +218,6 @@ export function HomePage({
           </div>
         </section>
       </div>
-
-      {notice ? (
-        <div className="fixed bottom-10 left-1/2 z-50 -translate-x-1/2 rounded-full bg-white px-5 py-2 text-sm font-medium text-black shadow-2xl">
-          {notice}
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -257,29 +232,19 @@ interface ShelfEntry {
 function Shelf({
   id,
   title,
-  caption,
-  empty,
-  emptyAction,
   items,
   action,
-  onEmpty,
 }: {
   id: string
   title: string
-  caption: string
-  empty: string
-  emptyAction: string
   items: ShelfEntry[]
   action?: { label: string; onClick: () => void }
-  onEmpty: () => void
 }) {
+  if (items.length === 0) return null
   return (
     <section className="min-w-0 animate-fade-up">
       <div className="mb-2 flex items-end justify-between gap-4 px-1">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-white/95">{title}</h2>
-          <p className="mt-0.5 text-[11px] text-white/45">{caption}</p>
-        </div>
+        <h2 className="text-xl font-semibold tracking-tight text-white/95">{title}</h2>
         {action ? (
           <Focusable scale="sm" onEnter={action.onClick}>
             <span className="flex items-center gap-1 rounded-full bg-black/25 px-3 py-1.5 text-[11px] text-white/65 backdrop-blur">
@@ -289,29 +254,18 @@ function Shelf({
           </Focusable>
         ) : null}
       </div>
-      {items.length === 0 ? (
-        <Focusable focusKey={`HOME-EMPTY-${id}`} onEnter={onEmpty} scale="sm">
-          <div className="flex h-52 w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/20 bg-black/20 backdrop-blur-sm">
-            <p className="text-sm text-white/55">{empty}</p>
-            <span className="rounded-full bg-white/10 px-4 py-1.5 text-xs text-white">
-              {emptyAction}
-            </span>
-          </div>
-        </Focusable>
-      ) : (
-        <div className="shelf-scroll flex gap-5 overflow-x-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {items.map((entry, index) => (
-            <WideCard
-              key={entry.item.key}
-              item={entry.item}
-              progressMs={entry.progressMs}
-              durationMs={entry.durationMs}
-              focusKey={`HOME-${id.toUpperCase()}-${index}`}
-              onSelect={entry.onSelect}
-            />
-          ))}
-        </div>
-      )}
+      <div className="shelf-scroll flex gap-5 overflow-x-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {items.map((entry, index) => (
+          <WideCard
+            key={entry.item.key}
+            item={entry.item}
+            progressMs={entry.progressMs}
+            durationMs={entry.durationMs}
+            focusKey={`HOME-${id.toUpperCase()}-${index}`}
+            onSelect={entry.onSelect}
+          />
+        ))}
+      </div>
     </section>
   )
 }
@@ -395,7 +349,6 @@ function ClueCreateCard({ onSelect }: { onSelect: () => void }) {
         </span>
         <div>
           <p className="text-sm font-semibold text-white">创建第一条线索</p>
-          <p className="mt-0.5 text-[11px] text-white/45">持续发现并自动入库</p>
         </div>
       </div>
     </Focusable>

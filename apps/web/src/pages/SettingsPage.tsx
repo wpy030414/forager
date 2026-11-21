@@ -64,7 +64,7 @@ export function SettingsPage() {
 
   const test = async (cfg: SourceConfig) => {
     setRunning(cfg.source, true)
-    mark(cfg.source, { kind: 'info', text: '测试中…' })
+    mark(cfg.source, { kind: 'info', text: '测试中' })
     try {
       const r = await api.testSource(cfg.source)
       mark(cfg.source, { kind: r.ok ? 'ok' : 'err', text: `${r.message}（${r.latencyMs}ms）` })
@@ -77,12 +77,7 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-10 px-12 pb-24 pt-28">
-      <div>
-        <h1 className="text-2xl font-bold text-white">设置</h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          用户凭证、默认清晰度与网络参数。保存后立即生效，不用重启容器。
-        </p>
-      </div>
+      <h1 className="text-2xl font-bold text-white">设置</h1>
 
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
@@ -102,7 +97,10 @@ export function SettingsPage() {
           />
         ))}
         {configs.length === 0 && !error ? (
-          <p className="text-sm text-zinc-500">正在读取配置…</p>
+          <>
+            <div className="h-72 animate-pulse rounded-3xl bg-white/[0.06]" />
+            <div className="h-72 animate-pulse rounded-3xl bg-white/[0.06]" />
+          </>
         ) : null}
       </div>
     </div>
@@ -233,18 +231,18 @@ function QrLogin({ source, onDone }: { source: string; onDone: () => void | Prom
         if (!alive) return
         if (r.status === 0) {
           setPhase('done')
-          setMessage('登录成功，凭据已保存')
+          setMessage('登录成功')
           void onDone()
         } else if (r.status === 86090) {
           setPhase('scanned')
-          setMessage('已扫码，请在手机上确认（86090）')
+          setMessage('已扫码')
         } else if (r.status === 86038) {
           setPhase('expired')
-          setMessage('二维码已过期，请刷新（86038）')
+          setMessage('二维码已过期')
         } else if (r.status === 86101) {
-          setMessage('等待扫码（86101）')
+          setMessage('')
         } else {
-          setMessage(`状态 ${r.status}：${r.message || '未知'}`)
+          setMessage(r.message || '')
         }
       } catch {
         /* 轮询失败继续重试 */
@@ -262,14 +260,11 @@ function QrLogin({ source, onDone }: { source: string; onDone: () => void | Prom
         <img src={qr.image} alt="登录二维码" className="h-40 w-40 rounded-xl bg-white p-1" />
       ) : (
         <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-white/5 text-xs text-zinc-500">
-          {phase === 'loading' ? '生成中…' : phase === 'expired' ? '已过期' : '不可用'}
+          {phase === 'loading' ? '生成中' : phase === 'expired' ? '已过期' : '不可用'}
         </div>
       )}
       <div className="space-y-2">
-        <p className="text-sm font-medium text-white">
-          {phase === 'done' ? '✓ 登录成功' : '用哔哩哔哩 App 扫码'}
-        </p>
-        <p className="text-xs text-zinc-400">{message || '扫码后凭据自动保存，不会经过浏览器'}</p>
+        <p className="text-sm font-medium text-white">{message}</p>
         {phase === 'expired' || phase === 'error' ? (
           <Focusable scale="sm" onEnter={() => void start()}>
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white">
@@ -332,14 +327,10 @@ function FieldRow({
           autoComplete="off"
           spellCheck={false}
           value={value}
-          placeholder={field.placeholder}
           onChange={(e) => onChange(e.target.value)}
           className={inputClass}
         />
       )}
-      {field.help ? (
-        <span className="mt-1 block text-[11px] text-zinc-500">{field.help}</span>
-      ) : null}
     </label>
   )
 }
