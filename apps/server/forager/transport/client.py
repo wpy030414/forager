@@ -91,10 +91,7 @@ class UpstreamClient:
         if not 200 <= resp.status < 300:
             hint = ""
             if resp.status == 403:
-                hint = (
-                    "（Cloudflare 拦截：请检查 HANIME1_COOKIE 的 cf_clearance 是否过期，"
-                    "或替换 HANIME1_PROXY）"
-                )
+                hint = "（上游拒绝：可能是 Cloudflare 拦截、凭据过期或需要代理）"
             raise UpstreamError(f"上游返回 HTTP {resp.status}{hint}", resp.status or 502)
 
         body = resp.text
@@ -102,6 +99,43 @@ class UpstreamClient:
             if len(self._cache) > 200:
                 now = time.monotonic()
                 self._cache = {k: v for k, v in self._cache.items() if v[0] >= now}
+            self._cache[url] = (time.monotonic() + ttl, body)
+        return body
+
+    async def request(
+        self,
+        path: str,
+        *,
+        headers: dict[str, str] | None = None,
+        form: dict[str, str] | None = None,
+        ttl_ms: int = 0,
+    ) -> str:
+        """任意请求（JSON API / OAuth 表单）：返回文本，默认不缓存、仍走频控。
+
+        与 fetch_html 的区别：不强制 HTML 缓存（JSON 会变），支持 POST 表单。
+        """
+        url = path if "://" in path else urljoin(self.base_url + "/", path)
+        ttl = ttl_ms / 1000
+        if ttl > 0:
+            hit = self._cache.get(url)
+            if hit and hit[0] > time.monotonic():
+                return hit[1]
+
+        async with self._lock:
+            await self._throttle()
+            resp = await curl_request(
+                url,
+                headers={**self._base_headers(), **(headers or {})},
+                proxy=self.proxy,
+                retries=1,
+                form=form,
+                resolve_map=await self._resolve_map(url),
+            )
+
+        if not 200 <= resp.status < 300:
+            raise UpstreamError(f"上游返回 HTTP {resp.status}", resp.status or 502)
+        body = resp.text
+        if ttl > 0:
             self._cache[url] = (time.monotonic() + ttl, body)
         return body
 

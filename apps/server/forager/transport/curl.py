@@ -66,6 +66,14 @@ def canonical_header(name: str) -> str:
     return "-".join(part[:1].upper() + part[1:] for part in lower.split("-"))
 
 
+def _form_args(form: dict[str, str] | None) -> list[str]:
+    """POST 表单：用 --data-urlencode 逐字段编码，避免自己拼 %-encoding。"""
+    args = ["-X", "POST"]
+    for key, value in (form or {}).items():
+        args += ["--data-urlencode", f"{key}={value}"]
+    return args
+
+
 def _common_args(
     *,
     headers: dict[str, str] | None,
@@ -74,6 +82,7 @@ def _common_args(
     timeout: float,
     resolve_map: dict[str, str] | None,
     total_timeout: bool = True,
+    form: dict[str, str] | None = None,
 ) -> list[str]:
     args = [
         "-sS",
@@ -95,6 +104,8 @@ def _common_args(
         args.append("-4")
         for host, ip in (resolve_map or {}).items():
             args += ["--resolve", f"{host}:443:{ip}"]
+    if form is not None:
+        args += _form_args(form)
     # curl -r 只接受 `start-end`，不接受 HTTP 的 `bytes=start-end` 写法
     if range_:
         args += ["-r", range_.strip().removeprefix("bytes=")]
@@ -131,14 +142,15 @@ async def curl_request(
     retries: int = 0,
     timeout: float = 30,
     resolve_map: dict[str, str] | None = None,
+    form: dict[str, str] | None = None,
 ) -> CurlResponse:
-    """一次性请求（HTML / 图片）：响应体读入内存后返回。"""
+    """一次性请求（HTML / JSON / 图片 / 表单）：响应体读入内存后返回。"""
     attempt = 0
     while True:
         try:
             return await _run_once(
                 url, headers=headers, proxy=proxy, range_=range_,
-                timeout=timeout, resolve_map=resolve_map,
+                timeout=timeout, resolve_map=resolve_map, form=form,
             )
         except CurlError:
             if attempt >= retries:
@@ -154,13 +166,14 @@ async def _run_once(
     range_: str | None,
     timeout: float,
     resolve_map: dict[str, str] | None,
+    form: dict[str, str] | None = None,
 ) -> CurlResponse:
     workdir = Path(tempfile.mkdtemp(prefix="forager-"))
     header_file = workdir / "headers.txt"
     body_file = workdir / "body.bin"
     args = _common_args(
         headers=headers, proxy=proxy, range_=range_,
-        timeout=timeout, resolve_map=resolve_map,
+        timeout=timeout, resolve_map=resolve_map, form=form,
     )
     args += ["-D", str(header_file), "-o", str(body_file), "-w", "%{http_code}", url]
 
