@@ -8,11 +8,21 @@ import { cn } from '@/lib/utils'
  */
 export const FocusActiveContext = createContext(true)
 
+type Dir = 'up' | 'down' | 'left' | 'right'
+
 /**
- * 当前按下的方向（模块级）：onArrowPress 在导航之前同步触发，所以新卡获焦时
- * 读到的就是「焦点从哪个方向移过来」，用来决定初始倾斜角。
+ * 焦点来源（模块级）：onArrowPress 是自己被按下的那一刻同步触发的，
+ * 之后 norigin 会等布局量完才把焦点交给下一张卡。所以「最后按下的方向」
+ * 只在一次按键内有效，这里再记下按下它的那个组件——
+ * 新卡获焦时若「本次按键来自别的卡」，方向才算数。
  */
-let lastDir: 'up' | 'down' | 'left' | 'right' | null = null
+let pendingDir: { dir: Dir; from: symbol } | null = null
+
+/** 每个 Focusable 实例的身份标记 */
+function useIdentity(): symbol {
+  const id = useRef<symbol>(Symbol('focusable'))
+  return id.current
+}
 
 /** 倾斜角：左右键给出 ±tiltMax 的 rotateY，上下键回正 */
 function tiltFor(dir: 'up' | 'down' | 'left' | 'right' | null, max: number): number {
@@ -70,6 +80,7 @@ export function Focusable({
   const [hovered, setHovered] = useState(false)
   const [dir, setDir] = useState<number>(0)
   const entered = useRef(false)
+  const id = useIdentity()
 
   const { ref, focused } = useFocusable({
     focusKey,
@@ -78,10 +89,9 @@ export function Focusable({
     onFocus: () => onFocus?.(),
     onBlur: () => onBlur?.(),
     onArrowPress: (next) => {
-      const d = next as 'up' | 'down' | 'left' | 'right'
-      lastDir = d
-      // 按下时就先把倾斜做起来，与导航并行动画，避免「先放大、后倾斜」的两段感；
-      // 但当前卡同时要先回正，这里只记录方向，倾斜交给新卡表现。
+      const d = next as Dir
+      // 记下「谁按的、按向哪」，由接棒的那张卡在获焦时消费
+      pendingDir = { dir: d, from: id }
       entered.current = false
       setDir(0)
       onArrow?.(d)
@@ -98,8 +108,12 @@ export function Focusable({
     }
     if (entered.current) return
     entered.current = true
-    setDir(tilt === 'disabled' ? 0 : tiltFor(lastDir, tiltMax))
-  }, [focused, tilt, tiltMax])
+    // 只有「本次按键是从别的卡按出去的」才倾斜；程序化设焦点（进页面、弹层关闭）
+    // 不应该平白晃一下
+    const incoming = pendingDir && pendingDir.from !== id ? pendingDir.dir : null
+    pendingDir = null
+    setDir(tilt === 'disabled' ? 0 : tiltFor(incoming, tiltMax))
+  }, [focused, id, tilt, tiltMax])
 
   const hot = focused || hovered
   const zoom = scale === 'lg' ? 1.1 : scale === 'sm' ? 1.04 : 1.08
