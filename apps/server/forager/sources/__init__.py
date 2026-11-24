@@ -11,6 +11,7 @@ from ..transport.client import UpstreamClient
 from .base import BaseSource, SourceError
 from .hanime1 import Hanime1Source
 from .local import LocalSource
+from .pixiv import PixivSource
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -31,7 +32,18 @@ def create_sources(settings: Settings, db: Database | None = None) -> dict[str, 
             cache_ttl_ms=settings.html_cache_ttl_ms,
         )
     )
-    sources: list[BaseSource] = [hanime1]
+    pixiv = PixivSource(
+        UpstreamClient(
+            base_url="https://www.pixiv.net",
+            user_agent=DEFAULT_UA,
+            proxy=settings.pixiv_proxy,
+            cookie=settings.pixiv_cookie,
+            referer="https://www.pixiv.net/",
+            min_interval_ms=settings.min_interval_ms,
+            cache_ttl_ms=settings.html_cache_ttl_ms,
+        )
+    )
+    sources: list[BaseSource] = [hanime1, pixiv]
     if db is not None:
         sources.insert(0, LocalSource(db))
     return {source.id: source for source in sources}

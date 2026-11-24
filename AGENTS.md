@@ -5,7 +5,8 @@ forager 是自托管媒体采集与归档服务（Python 后端 + tvOS 风格 SP
 ## 概述
 - 核心哲学：界面的一切内容都来自「源」——本地库（`local`）也是源，与 Hanime1、Pixiv 同级，共用同一套 list / search / categories / detail / play 契约。
 - 本项目是什么：按「线索」持续发现源站内容，下载归档到本地源，并在 Web 端按源浏览。
-- 两个在线源：hanime1（HTML 解析）、Pixiv（OAuth 登录 + JSON API）。
+- 两个在线源：hanime1（HTML 解析）、Pixiv（网页端 /ajax/* JSON 接口）。
+- 访问控制：除 /api/health 外所有 /api/* 需登录，会话 Cookie 由 forager/auth.py 管。
 
 ## 边界与范围
 - 范围内：线索调度、下载队列与入库、播放（本地优先 / 源站 Range 代理）、凭据设置与扫码登录。

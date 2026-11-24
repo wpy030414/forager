@@ -3,6 +3,7 @@
 自托管的媒体采集与归档服务：**按规则持续发现、下载、归档，并按来源与分区分面浏览**。
 
 - 后端：Python 3.12+ / FastAPI / SQLite / asyncio，除系统 `curl` 外无外部服务
+- 访问控制：本地单账号（用户名 + 密码 + 恢复码）；首次启动的初始密码打印在服务端日志里
 - 前端：tvOS 风格 SPA（React 19），四个页面：**首页 / 源 / 线索 / 设置**
 - 哲学：界面的一切内容都来自「源」——**本地库也是一个源**，与 Hanime1、Pixiv 同级，共用同一套浏览与播放路径
 - 部署：单容器，`docker compose up -d` 即用
@@ -90,7 +91,7 @@ apps/server/forager/
 ├── sources/
 │   ├── base.py          源契约 + 线索发现能力
 │   ├── hanime1.py       hanime1 适配器
-│   └── pixiv.py         Pixiv 适配器（OAuth 登录 / 画师 / 收藏关注）
+│   └── pixiv.py         Pixiv 适配器（网页 ajax 接口 / 画师 / 收藏关注）
 ├── library/
 │   ├── cache.py         元数据缓存 + 封面缓存
 │   └── downloader.py    单并发下载队列（含 dash 双轨合并）
@@ -129,6 +130,7 @@ apps/server/forager/
 | `PUID` / `PGID` | 1000 | 容器降权后的运行身份 |
 | `FORAGER_SECRET_KEY` | 自动生成 | 凭据加密密钥，见下方说明 |
 | `HANIME1_PROXY` / `_DNS_PROXY` / `_RESOLVE` / `_COOKIE` | — | hanime1 上游 |
+| `PIXIV_PROXY` / `PIXIV_COOKIE` | — | Pixiv 上游（国内通常需要代理） |
 | `FORAGER_MIN_INTERVAL_MS` | 400 | 同一上游最小请求间隔 |
 | `FORAGER_DOWNLOAD_CONCURRENCY` | 1 | 下载并发 |
 | `FORAGER_SUB_INITIAL` | 3 | 线索首轮补抓上限 |
@@ -149,8 +151,8 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 ## 已知限制
 
 - hanime1 没有独立分区字段，分区取其 genre
-- Pixiv 需网页登录后使用；收藏/关注类线索仅 Pixiv 支持
-- Pixiv ugoira（动图）首版不支持，取首帧
+- Pixiv 匿名即可浏览排行/搜索/画师；关注与收藏夹类线索需在设置页填 Cookie
+- Pixiv ugoira（动图）首版按首帧处理
 - 下载并发默认 1，不支持跨重启断点续传
 - 无字幕轨合并、无 DRM 处理（遇到即标为不支持）
 

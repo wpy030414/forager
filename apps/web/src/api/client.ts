@@ -43,7 +43,7 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
 export interface SourceConfigField {
   key: string
   label: string
-  type: 'text' | 'secret' | 'number' | 'select' | 'login'
+  type: 'text' | 'secret' | 'number' | 'select'
   placeholder?: string
   help?: string
   /** 非敏感字段的当前值 */
@@ -54,8 +54,6 @@ export interface SourceConfigField {
   hint?: string
   /** select 类型的候选项 */
   options?: Array<{ value: string; label: string }>
-  /** login 类型：跳转网页登录的地址；null 表示该源不提供网页登录 */
-  loginUrl?: string | null
 }
 
 export interface SourceConfig {

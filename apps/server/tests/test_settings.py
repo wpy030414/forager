@@ -104,7 +104,7 @@ def test_api_never_returns_plaintext(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         _login(client)
         listing = client.get("/api/settings/sources").json()
-        assert {s["source"] for s in listing} == {"hanime1"}
+        assert {s["source"] for s in listing} == {"hanime1", "pixiv"}
 
         saved = client.put("/api/settings/sources/hanime1", json={"cookie": COOKIE})
         assert saved.status_code == 200

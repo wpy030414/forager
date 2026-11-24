@@ -21,6 +21,21 @@ from ..db import Database, now_iso
 from ..sources.base import BaseSource
 
 
+#: 按直链后缀判断落盘扩展名；图片源（Pixiv）不该存成 .mp4
+KNOWN_EXTS = (".mp4", ".m4v", ".webm", ".mkv", ".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def media_ext(url: str | None, audio_url: str | None) -> str:
+    """双轨合并产物固定 mp4；单文件按直链后缀，认不出就当视频。"""
+    if audio_url:
+        return ".mp4"
+    tail = (url or "").split("?")[0].lower()
+    for ext in KNOWN_EXTS:
+        if tail.endswith(ext):
+            return ".jpg" if ext == ".jpeg" else ext
+    return ".mp4"
+
+
 def _file_stem(raw: str) -> str:
     return re.sub(r"[^\w.-]+", "_", raw)
 
@@ -211,16 +226,17 @@ class Downloader:
                     f"[download] {job['key']} 请求清晰度不可用，降级为 {quality}"
                 )
 
+            # 2) 下载：dash 音视频分离 → 双轨 + ffmpeg 合并；durl / 直链 → 单文件落盘
+            audio_url = (candidate or {}).get("audioUrl")
+            video_url = (candidate or {}).get("url") or await source.stream_url(job["id"], quality)
+
+            # 3) 落盘文件名：图片源要保留 .png/.jpg，不能一律 .mp4
             stem = _file_stem(f"{job['source']}-{job['id']}-{quality}")
-            file_name = f"{stem}.mp4"
+            file_name = f"{stem}{media_ext(video_url, audio_url)}"
             target = self.db.media_path(file_name)
             target.parent.mkdir(parents=True, exist_ok=True)
             part_path = target.with_name(target.name + ".part")
             parts.append(part_path)
-
-            # 2) 下载：dash 音视频分离 → 双轨 + ffmpeg 合并；durl / 直链 → 单文件落盘
-            audio_url = (candidate or {}).get("audioUrl")
-            video_url = (candidate or {}).get("url") or await source.stream_url(job["id"], quality)
 
             job["totalBytes"] = 0
             job["receivedBytes"] = 0
@@ -300,7 +316,7 @@ class Downloader:
 
     async def _download_to(self, source, url: str, path, job: dict[str, Any], lo: int, hi: int) -> None:
         """把一条轨下到 path；进度映射到 [lo, hi] 区间。"""
-        handle = await source.client.stream(url)
+        handle = await source.open_stream_url(url)
         try:
             if handle.status >= 400:
                 raise RuntimeError(f"上游返回 HTTP {handle.status}")

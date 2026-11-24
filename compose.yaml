@@ -27,6 +27,8 @@ services:
       HANIME1_RESOLVE: ${HANIME1_RESOLVE:-}
       HANIME1_COOKIE: ${HANIME1_COOKIE:-}
       HANIME1_BASE_URL: ${HANIME1_BASE_URL:-https://hanime1.me}
+      PIXIV_PROXY: ${PIXIV_PROXY:-}
+      PIXIV_COOKIE: ${PIXIV_COOKIE:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:11408/api/health || exit 1"]
       interval: 30s

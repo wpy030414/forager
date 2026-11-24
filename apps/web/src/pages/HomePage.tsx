@@ -36,7 +36,6 @@ const PLATFORM_STYLE: Record<
     label: 'Pixiv',
     mark: 'P',
     gradient: 'from-[#0096FA] via-[#0073c2] to-[#052f52]',
-    soon: true,
   },
   cctv: {
     label: 'CCTV',

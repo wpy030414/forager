@@ -150,11 +150,16 @@ class UpstreamClient:
             resolve_map=await self._resolve_map(url),
         )
 
-    async def stream(self, url: str, range_: str | None = None) -> StreamResponse:
+    async def stream(
+        self,
+        url: str,
+        range_: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> StreamResponse:
         """流式抓取（视频直放）：Range 透传，不落盘。"""
         return await open_stream(
             url,
-            headers=self._base_headers(),
+            headers={**self._base_headers(), **(headers or {})},
             proxy=self.proxy,
             range_=range_,
             timeout=60,

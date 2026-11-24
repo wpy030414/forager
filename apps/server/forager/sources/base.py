@@ -36,8 +36,6 @@ class BaseSource:
     quality_options: ClassVar[tuple[str, ...]] = ()
     #: 是否支持扫码登录（设置页据此显示按钮）
     supports_qrcode: ClassVar[bool] = False
-    #: 网页登录入口；None 表示该源不提供网页登录（设置页只显示状态）
-    login_url: ClassVar[str | None] = None
 
     def __init__(self, client: UpstreamClient) -> None:
         self.client = client
@@ -125,6 +123,10 @@ class BaseSource:
         self, vid: str, quality: str | None = None, range_: str | None = None
     ) -> StreamResponse:
         return await self.client.stream(await self.stream_url(vid, quality), range_=range_)
+
+    async def open_stream_url(self, url: str) -> StreamResponse:
+        """按绝对地址取流。图片/资源站常需源自己的头（如 Referer），故可覆写。"""
+        return await self.client.stream(url)
 
     async def fetch_image(self, url: str) -> bytes:
         return (await self.client.fetch_bytes(url)).body

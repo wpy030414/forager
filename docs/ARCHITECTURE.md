@@ -33,6 +33,7 @@
 | `transport/curl.py` | curl 子进程传输：非流式（HTML/JSON/图片）与流式（Range 透传） |
 | `transport/client.py` | 统一 UA/Referer/Cookie、每主机串行频控、HTML 短 TTL 缓存、DoH 解析 + `--resolve` |
 | `sources/base.py` | 源契约：list/search/detail/stream_url + 线索发现能力 + 配置字段声明 |
+| `sources/pixiv.py` | 网页端 /ajax/* 接口：排行、搜索、作品详情、画师作品、关注/收藏（需 Cookie） |
 | `sources/local.py` | 本地源：把库暴露成普通源（list/search/categories/detail/封面），不参与线索与设置 |
 | `sources/hanime1.py` | Blade SSR 页面解析（选择器表 + 卡片/详情） |
 | `library/downloader.py` | 单并发队列；dash 双轨 + ffmpeg remux；`.part` 原子落盘；元数据全量快照 |

@@ -42,7 +42,7 @@ def test_health_and_sources(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.get("/api/health").json() == {"status": "ok"}  # 健康检查不设门
         _login(client)
-        assert [s["id"] for s in client.get("/api/sources").json()] == ["local", "hanime1"]
+        assert [s["id"] for s in client.get("/api/sources").json()] == ["local", "hanime1", "pixiv"]
         assert client.get("/api/library/items").json() == []
         assert client.get("/api/library/mode").json() == {"offline": False}
 
@@ -76,7 +76,7 @@ def test_tree_crud(tmp_path) -> None:
         assert node["kind"] == "query"
 
         tree = client.get("/api/tree").json()
-        assert [g["source"] for g in tree["sources"]] == ["hanime1"]
+        assert [g["source"] for g in tree["sources"]] == ["hanime1", "pixiv"]
         assert tree["sources"][0]["total"] == {"discovered": 0, "done": 0}
 
         assert client.delete(f"/api/tree/nodes/{node['id']}").json() == {"ok": True}

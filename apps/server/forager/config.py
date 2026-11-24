@@ -44,6 +44,9 @@ class Settings:
     download_concurrency: int
     sub_tick_sec: int
     sub_initial: int
+    # pixiv 上游
+    pixiv_proxy: str | None = None
+    pixiv_cookie: str | None = None
     # 凭据加密密钥（Fernet，urlsafe base64）；缺省时自动生成并落盘
     secret_key: str | None = None
 
@@ -62,6 +65,8 @@ def load_settings() -> Settings:
         hanime1_dns_proxy=_env("HANIME1_DNS_PROXY"),
         hanime1_pinned_ip=_env("HANIME1_RESOLVE"),
         hanime1_cookie=_env("HANIME1_COOKIE"),
+        pixiv_proxy=_env("PIXIV_PROXY"),
+        pixiv_cookie=_env("PIXIV_COOKIE"),
         min_interval_ms=int(_env("FORAGER_MIN_INTERVAL_MS", default="400") or 400),
         html_cache_ttl_ms=int(_env("FORAGER_CACHE_TTL_MS", default="60000") or 60000),
         download_concurrency=int(_env("FORAGER_DOWNLOAD_CONCURRENCY", default="1") or 1),
