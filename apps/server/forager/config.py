@@ -44,10 +44,6 @@ class Settings:
     download_concurrency: int
     sub_tick_sec: int
     sub_initial: int
-    # bilibili 上游
-    bilibili_proxy: str | None = None
-    bilibili_cookie: str | None = None
-    bilibili_min_interval_ms: int = 1200
     # 凭据加密密钥（Fernet，urlsafe base64）；缺省时自动生成并落盘
     secret_key: str | None = None
 
@@ -71,8 +67,5 @@ def load_settings() -> Settings:
         download_concurrency=int(_env("FORAGER_DOWNLOAD_CONCURRENCY", default="1") or 1),
         sub_tick_sec=int(_env("FORAGER_SUB_TICK", default="30") or 30),
         sub_initial=int(_env("FORAGER_SUB_INITIAL", default="3") or 3),
-        bilibili_proxy=_env("BILIBILI_PROXY"),
-        bilibili_cookie=_env("BILIBILI_COOKIE"),
-        bilibili_min_interval_ms=int(_env("BILIBILI_MIN_INTERVAL_MS", default="1200") or 1200),
         secret_key=_env("FORAGER_SECRET_KEY"),
     )

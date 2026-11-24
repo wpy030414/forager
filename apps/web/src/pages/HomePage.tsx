@@ -16,7 +16,7 @@ export interface HomePlayTarget {
   startAtMs: number
 }
 
-const PLATFORM_ORDER = ['local', 'bilibili', 'hanime1', 'pixiv', 'cctv']
+const PLATFORM_ORDER = ['local', 'hanime1', 'pixiv', 'cctv']
 
 const PLATFORM_STYLE: Record<
   string,
@@ -26,11 +26,6 @@ const PLATFORM_STYLE: Record<
     label: '本地',
     mark: '本',
     gradient: 'from-[#52525b] via-[#27272a] to-[#09090b]',
-  },
-  bilibili: {
-    label: '哔哩哔哩',
-    mark: 'bilibili',
-    gradient: 'from-[#FB7299] via-[#e0628f] to-[#00AEEC]',
   },
   hanime1: {
     label: 'Hanime1',

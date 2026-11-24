@@ -4,7 +4,7 @@
 
 - 后端：Python 3.12+ / FastAPI / SQLite / asyncio，除系统 `curl` 外无外部服务
 - 前端：tvOS 风格 SPA（React 19），四个页面：**首页 / 源 / 线索 / 设置**
-- 哲学：界面的一切内容都来自「源」——**本地库也是一个源**，与哔哩哔哩、Hanime1 同级，共用同一套浏览与播放路径
+- 哲学：界面的一切内容都来自「源」——**本地库也是一个源**，与 Hanime1、Pixiv 同级，共用同一套浏览与播放路径
 - 部署：单容器，`docker compose up -d` 即用
 
 > 本仓库前身是 `libre-tv`（Hono + TS 全栈）。forager 用 Python 重写后端并保持接口契约，
@@ -14,7 +14,7 @@
 
 ### 首页
 tvOS 无 chrome 流式墙：进入即 4K 风景照打满全屏，右上角只有时间与设置。
-从上到下依次是「继续播放 / 为你推荐」双货架、平台入口（本地、哔哩哔哩、Hanime1；Pixiv / CCTV 待接入）
+从上到下依次是「继续播放 / 为你推荐」双货架、平台入口（本地、Hanime1、Pixiv；CCTV 待接入）
 与线索入口；除前两个货架外，其余区块不设标题、副标题、提示或「更多」。
 获焦卡片会放大，横向货架自动居中滚动。
 
@@ -28,10 +28,10 @@ tvOS 无 chrome 流式墙：进入即 4K 风景照打满全屏，右上角只有
 | 类型 | 含义 | 支持的源 |
 |------|------|----------|
 | `query` | 关键词持续搜索 | 全部 |
-| `partition` | 某分区的新热门 | Bilibili（UGC 主分区排行榜；番剧/国创/综艺走 PGC 放送时间表）/ Hanime1（站内 genre） |
-| `uploader` | 某发布者的全部作品 | Bilibili（mid）/ Hanime1（名称） |
-| `favorites` | 我的收藏夹 → 自动展开成发布者子线索 | Bilibili（需登录） |
-| `following` | 我的关注 → 自动展开成发布者子线索 | Bilibili（需登录） |
+| `partition` | 某分区的新热门 | Hanime1（站内 genre） |
+| `uploader` | 某发布者的全部作品 | Hanime1（名称）/ Pixiv（画师 uid） |
+| `favorites` | 我的收藏夹 → 自动展开成发布者子线索 | Pixiv（需登录） |
+| `following` | 我的关注 → 自动展开成发布者子线索 | Pixiv（需登录） |
 
 发现过的条目记在 `subscription_seen`，同一线索永不重复入队；首次运行只补最新 3 条。
 每个节点可单独「同步」或删除（删父节点会级联删子节点）。
@@ -41,7 +41,7 @@ tvOS 无 chrome 流式墙：进入即 4K 风景照打满全屏，右上角只有
 每个最小下载单元（单集 / 单个分 P）各自排队、各自显示进度，互不覆盖。
 
 ### 设置
-- **扫码登录**（Bilibili）：服务端生成二维码，扫码确认后凭据直接落库，**不经过浏览器**
+- **网页登录**：跳转到源站授权，回调后凭据由服务端直接落库，**不经过浏览器**
 - 各源 Cookie / 代理 / DoH 代理 / 钉死 IP / 请求间隔
 - **默认清晰度**：线索未单独指定时使用
 - 凭据 Fernet 加密存储，接口只回 `****abcd`；保存后热生效，不用重启容器
@@ -90,7 +90,7 @@ apps/server/forager/
 ├── sources/
 │   ├── base.py          源契约 + 线索发现能力
 │   ├── hanime1.py       hanime1 适配器
-│   └── bilibili.py      Bilibili 适配器（WBI / dash / 扫码 / 收藏关注）
+│   └── pixiv.py         Pixiv 适配器（OAuth 登录 / 画师 / 收藏关注）
 ├── library/
 │   ├── cache.py         元数据缓存 + 封面缓存
 │   └── downloader.py    单并发下载队列（含 dash 双轨合并）
@@ -119,8 +119,6 @@ apps/server/forager/
 | GET | `/api/settings/sources` | 可配置项（敏感字段仅掩码） |
 | PUT | `/api/settings/sources/:id` | 保存并热应用 |
 | POST | `/api/settings/sources/:id/test` | 用当前配置试连 |
-| GET | `/api/auth/bilibili/qrcode` | 生成登录二维码（服务端出图） |
-| GET | `/api/auth/bilibili/qrcode/poll?key=` | 轮询登录状态，成功后自动落库 |
 
 ## 配置
 
@@ -131,7 +129,6 @@ apps/server/forager/
 | `PUID` / `PGID` | 1000 | 容器降权后的运行身份 |
 | `FORAGER_SECRET_KEY` | 自动生成 | 凭据加密密钥，见下方说明 |
 | `HANIME1_PROXY` / `_DNS_PROXY` / `_RESOLVE` / `_COOKIE` | — | hanime1 上游 |
-| `BILIBILI_PROXY` / `_COOKIE` | — | Bilibili 上游 |
 | `FORAGER_MIN_INTERVAL_MS` | 400 | 同一上游最小请求间隔 |
 | `FORAGER_DOWNLOAD_CONCURRENCY` | 1 | 下载并发 |
 | `FORAGER_SUB_INITIAL` | 3 | 线索首轮补抓上限 |
@@ -151,9 +148,9 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 ## 已知限制
 
-- Bilibili 匿名只能取 360P/480P；高清晰度需扫码登录或填 Cookie。海外访问通常需要 `BILIBILI_PROXY`
-- Bilibili 多 P 稿件只取 P1；番剧（大会员/地区）未实现
-- hanime1 没有独立分区字段，分区取其 genre；收藏/关注类线索仅 Bilibili 支持
+- hanime1 没有独立分区字段，分区取其 genre
+- Pixiv 需网页登录后使用；收藏/关注类线索仅 Pixiv 支持
+- Pixiv ugoira（动图）首版不支持，取首帧
 - 下载并发默认 1，不支持跨重启断点续传
 - 无字幕轨合并、无 DRM 处理（遇到即标为不支持）
 

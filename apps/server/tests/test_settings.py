@@ -12,11 +12,10 @@ from forager.config import Settings
 from forager.db import Database
 from forager.secrets import SecretBox, load_key, mask
 from forager.source_config import SourceConfigStore
-from forager.sources.bilibili import BilibiliSource
 from forager.sources.hanime1 import Hanime1Source
 from forager.transport.client import UpstreamClient
 
-COOKIE = "SESSDATA=deadbeef1234567890; bili_jct=abcd"
+COOKIE = "cf_clearance=deadbeef1234567890abcd"
 
 
 def make_settings(tmp_path) -> Settings:
@@ -58,15 +57,15 @@ def test_store_encrypts_secret_and_masks(tmp_path) -> None:
     db = Database(tmp_path / "data")
     store = SourceConfigStore(db, SecretBox(load_key(tmp_path, None)))
     sources = {
-        "bilibili": BilibiliSource(UpstreamClient(base_url="https://api.bilibili.com", user_agent="ua")),
+        "hanime1": Hanime1Source(UpstreamClient(base_url="https://hanime1.me", user_agent="ua")),
     }
-    store.save("bilibili", sources["bilibili"].config_fields, {"cookie": COOKIE, "min_interval_ms": "900"})
+    store.save("hanime1", sources["hanime1"].config_fields, {"cookie": COOKIE, "min_interval_ms": "900"})
 
     raw = {r["key"]: r["value"] for r in db.query("SELECT key, value FROM settings")}
-    assert COOKIE not in raw["source.bilibili.cookie"]  # 落库是密文
-    assert raw["source.bilibili.min_interval_ms"] == "900"
+    assert COOKIE not in raw["source.hanime1.cookie"]  # 落库是密文
+    assert raw["source.hanime1.min_interval_ms"] == "900"
 
-    values = store.values("bilibili", sources["bilibili"].config_fields)
+    values = store.values("hanime1", sources["hanime1"].config_fields)
     assert values["cookie"] == COOKIE
     assert values["min_interval_ms"] == 900
 
@@ -81,9 +80,9 @@ def test_store_encrypts_secret_and_masks(tmp_path) -> None:
 def test_save_applies_live(tmp_path) -> None:
     db = Database(tmp_path / "data")
     store = SourceConfigStore(db, SecretBox(load_key(tmp_path, None)))
-    source = BilibiliSource(UpstreamClient(base_url="https://api.bilibili.com", user_agent="ua"))
-    store.save("bilibili", source.config_fields, {"cookie": COOKIE, "min_interval_ms": "2000"})
-    store.apply_all({"bilibili": source})
+    source = Hanime1Source(UpstreamClient(base_url="https://hanime1.me", user_agent="ua"))
+    store.save("hanime1", source.config_fields, {"cookie": COOKIE, "min_interval_ms": "2000"})
+    store.apply_all({"hanime1": source})
     assert source.client.cookie == COOKIE
     assert source.client.min_interval == 2.0
     db.close()
@@ -92,9 +91,9 @@ def test_save_applies_live(tmp_path) -> None:
 def test_api_never_returns_plaintext(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         listing = client.get("/api/settings/sources").json()
-        assert {s["source"] for s in listing} == {"hanime1", "bilibili"}
+        assert {s["source"] for s in listing} == {"hanime1"}
 
-        saved = client.put("/api/settings/sources/bilibili", json={"cookie": COOKIE})
+        saved = client.put("/api/settings/sources/hanime1", json={"cookie": COOKIE})
         assert saved.status_code == 200
         assert COOKIE not in json.dumps(saved.json(), ensure_ascii=False)
 
@@ -102,7 +101,7 @@ def test_api_never_returns_plaintext(tmp_path) -> None:
         assert COOKIE not in again
         assert "abcd" in again  # 只回掩码
 
-        cleared = client.put("/api/settings/sources/bilibili", json={"cookie": ""})
+        cleared = client.put("/api/settings/sources/hanime1", json={"cookie": ""})
         assert cleared.status_code == 200
         field = next(
             f for f in cleared.json()["config"]["fields"] if f["key"] == "cookie"
@@ -114,4 +113,4 @@ def test_unknown_source_and_field(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.put("/api/settings/sources/nope", json={}).status_code == 404
         # 未声明的字段被忽略，不报错也不落库
-        assert client.put("/api/settings/sources/bilibili", json={"bogus": "x"}).status_code == 200
+        assert client.put("/api/settings/sources/hanime1", json={"bogus": "x"}).status_code == 200

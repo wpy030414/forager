@@ -27,9 +27,6 @@ services:
       HANIME1_RESOLVE: ${HANIME1_RESOLVE:-}
       HANIME1_COOKIE: ${HANIME1_COOKIE:-}
       HANIME1_BASE_URL: ${HANIME1_BASE_URL:-https://hanime1.me}
-      BILIBILI_PROXY: ${BILIBILI_PROXY:-}
-      BILIBILI_COOKIE: ${BILIBILI_COOKIE:-}
-      BILIBILI_MIN_INTERVAL_MS: ${BILIBILI_MIN_INTERVAL_MS:-1200}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:11408/api/health || exit 1"]
       interval: 30s

@@ -9,7 +9,6 @@ from ..config import Settings
 from ..db import Database
 from ..transport.client import UpstreamClient
 from .base import BaseSource, SourceError
-from .bilibili import BilibiliSource
 from .hanime1 import Hanime1Source
 from .local import LocalSource
 
@@ -32,18 +31,7 @@ def create_sources(settings: Settings, db: Database | None = None) -> dict[str, 
             cache_ttl_ms=settings.html_cache_ttl_ms,
         )
     )
-    bilibili = BilibiliSource(
-        UpstreamClient(
-            base_url="https://api.bilibili.com",
-            user_agent=DEFAULT_UA,
-            proxy=settings.bilibili_proxy,
-            cookie=settings.bilibili_cookie,
-            referer="https://www.bilibili.com/",
-            min_interval_ms=max(settings.min_interval_ms, settings.bilibili_min_interval_ms),
-            cache_ttl_ms=settings.html_cache_ttl_ms,
-        )
-    )
-    sources: list[BaseSource] = [bilibili, hanime1]
+    sources: list[BaseSource] = [hanime1]
     if db is not None:
         sources.insert(0, LocalSource(db))
     return {source.id: source for source in sources}

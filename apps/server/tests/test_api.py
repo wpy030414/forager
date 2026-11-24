@@ -29,11 +29,7 @@ def make_settings(tmp_path) -> Settings:
 def test_health_and_sources(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
-        assert [s["id"] for s in client.get("/api/sources").json()] == [
-            "local",
-            "bilibili",
-            "hanime1",
-        ]
+        assert [s["id"] for s in client.get("/api/sources").json()] == ["local", "hanime1"]
         assert client.get("/api/library/items").json() == []
         assert client.get("/api/library/mode").json() == {"offline": False}
 
@@ -64,7 +60,7 @@ def test_tree_crud(tmp_path) -> None:
         assert node["kind"] == "query"
 
         tree = client.get("/api/tree").json()
-        assert [g["source"] for g in tree["sources"]] == ["bilibili", "hanime1"]
+        assert [g["source"] for g in tree["sources"]] == ["hanime1"]
         assert tree["sources"][0]["total"] == {"discovered": 0, "done": 0}
 
         assert client.delete(f"/api/tree/nodes/{node['id']}").json() == {"ok": True}
@@ -86,21 +82,21 @@ def test_tree_browse_node_items(tmp_path, monkeypatch) -> None:
     with TestClient(app) as client:
         node = client.post(
             "/api/tree/nodes",
-            json={"source": "bilibili", "kind": "partition", "value": "13"},
+            json={"source": "hanime1", "kind": "partition", "value": "裏番"},
         ).json()
 
         async def fake_browse(kind: str, value: str, page: int = 1) -> dict:
-            assert (kind, value, page) == ("partition", "13", 1)
+            assert (kind, value, page) == ("partition", "裏番", 1)
             return {
-                "items": [{"id": "ss1", "source": "bilibili", "title": "某番", "kind": "series"}],
+                "items": [{"id": "2747", "source": "hanime1", "title": "某作", "kind": "video"}],
                 "page": 1,
                 "hasMore": False,
             }
 
-        monkeypatch.setattr(app.state.sources["bilibili"], "browse", fake_browse)
+        monkeypatch.setattr(app.state.sources["hanime1"], "browse", fake_browse)
         res = client.get(f"/api/tree/nodes/{node['id']}/items")
         assert res.status_code == 200
-        assert res.json()["items"][0]["kind"] == "series"
+        assert res.json()["items"][0]["kind"] == "video"
 
         assert client.get("/api/tree/nodes/99999/items").status_code == 404
 
@@ -220,4 +216,4 @@ def test_home_continue_and_recent(tmp_path) -> None:
 def test_library_facets_and_filters(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         assert client.get("/api/library/facets").json()["total"] == 0
-        assert client.get("/api/library/items?source=bilibili&category=动画").json() == []
+        assert client.get("/api/library/items?source=hanime1&category=裏番").json() == []

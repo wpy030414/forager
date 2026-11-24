@@ -2,7 +2,7 @@
 
 ## 核心哲学
 
-界面的一切内容都来自「源」：本地库（`local`）与哔哩哔哩、Hanime1 同级，
+界面的一切内容都来自「源」：本地库（`local`）与 Hanime1、Pixiv 同级，
 共用同一套 list / search / categories / detail / play 契约；
 下载只是「把内容从一个源搬进本地源」。
 
@@ -35,7 +35,6 @@
 | `sources/base.py` | 源契约：list/search/detail/stream_url + 线索发现能力 + 配置字段声明 |
 | `sources/local.py` | 本地源：把库暴露成普通源（list/search/categories/detail/封面），不参与线索与设置 |
 | `sources/hanime1.py` | Blade SSR 页面解析（选择器表 + 卡片/详情） |
-| `sources/bilibili.py` | WBI 签名、buvid3 自取、dash 双轨、durl 直放、分区/UP主/收藏/关注、PGC 番剧剧集、扫码登录 |
 | `library/downloader.py` | 单并发队列；dash 双轨 + ffmpeg remux；`.part` 原子落盘；元数据全量快照 |
 | `library/cache.py` | 元数据 7 天 + 直链单独判过期；封面按 URL 哈希落盘 |
 | `subs/scheduler.py` | 线索：巡检、差集入队、收藏/关注展开子节点、进度统计 |

@@ -33,5 +33,5 @@ forager 需要的是 NAS 上可长期跑的 Python 服务，因此**后端重写
 ## 未继承 / 待办
 
 - 旧 `apps/server`（Hono）已于 v2 移除，实现细节以本文件与 git 历史为准
-- Bilibili（WBI 签名）、网易云（sidecar）、Pixiv（OAuth 轮换）、CCTV（栏目 API）尚未接入
+- 网易云（sidecar）、CCTV（栏目 API）尚未接入；Bilibili 适配器已移除
 - 断点续传跨重启、字幕轨合并、REAL-DEBRID 类多源择优

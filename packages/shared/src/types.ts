@@ -23,7 +23,7 @@ export interface VideoSummary {
 }
 
 export interface VideoEpisode {
-  /** 最小下载单元 ID（PGC 为 ep<n>，UGC 分P 为 BV...:p<n>） */
+  /** 最小下载单元 ID（如源站剧集号、作品内的分 P 序号） */
   id: string
   title: string
   durationSec?: number
