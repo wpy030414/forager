@@ -1,4 +1,4 @@
-"""扫码登录：/api/auth/<source>/qrcode*
+"""上游源站扫码登录：/api/source-auth/<source>/qrcode*
 
 流程：前端拿到 url 渲染二维码 → 轮询 poll → 成功后服务端直接保存 Cookie（不经过前端）。
 """
@@ -13,7 +13,7 @@ import segno
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/source-auth", tags=["source-auth"])
 
 
 @router.get("/{source_id}/qrcode")

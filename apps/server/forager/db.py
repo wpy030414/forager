@@ -59,6 +59,23 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   created_at   TEXT NOT NULL
 );
 
+-- 本地账号：单账号（CHECK id = 1），密码与恢复码只存 Argon2id 哈希
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  username      TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  recovery_hash TEXT,
+  created_at    TEXT NOT NULL
+);
+
+-- 会话：只存 token 的 sha256；没有过期列，删行即失效
+CREATE TABLE IF NOT EXISTS sessions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id    INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 -- 订阅已见条目：保证同一个视频永远只入队一次
 CREATE TABLE IF NOT EXISTS subscription_seen (
   sub_id        INTEGER NOT NULL,
@@ -69,6 +86,7 @@ CREATE TABLE IF NOT EXISTS subscription_seen (
 
 CREATE INDEX IF NOT EXISTS idx_library_source ON library(source);
 CREATE INDEX IF NOT EXISTS idx_seen_sub ON subscription_seen(sub_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 """
 
 

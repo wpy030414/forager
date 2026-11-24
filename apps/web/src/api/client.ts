@@ -8,9 +8,17 @@ import type {
   VideoSummary,
 } from '@libre-tv/shared/types'
 
+/** 会话失效时广播：App 收到后切回登录页 */
+export const UNAUTHORIZED_EVENT = 'forager:unauthorized'
+
+function onUnauthorized(status: number): void {
+  if (status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path)
+  const res = await fetch(path, { credentials: 'same-origin' })
   if (!res.ok) {
+    onUnauthorized(res.status)
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     throw new ApiError(body.error ?? `请求失败（${res.status}）`, res.status)
   }
@@ -22,8 +30,10 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
     method,
     headers: body ? { 'content-type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
+    credentials: 'same-origin',
   })
   if (!res.ok) {
+    onUnauthorized(res.status)
     const data = (await res.json().catch(() => ({}))) as { error?: string }
     throw new ApiError(data.error ?? `请求失败（${res.status}）`, res.status)
   }
@@ -33,7 +43,7 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
 export interface SourceConfigField {
   key: string
   label: string
-  type: 'text' | 'secret' | 'number' | 'select'
+  type: 'text' | 'secret' | 'number' | 'select' | 'login'
   placeholder?: string
   help?: string
   /** 非敏感字段的当前值 */
@@ -44,6 +54,8 @@ export interface SourceConfigField {
   hint?: string
   /** select 类型的候选项 */
   options?: Array<{ value: string; label: string }>
+  /** login 类型：跳转网页登录的地址；null 表示该源不提供网页登录 */
+  loginUrl?: string | null
 }
 
 export interface SourceConfig {
@@ -121,7 +133,22 @@ export class ApiError extends Error {
   }
 }
 
+export interface SessionStatus {
+  authenticated: boolean
+  username: string | null
+}
+
 export const api = {
+  // ---- 会话 ----
+  sessionStatus: () => get<SessionStatus>('/api/session/status'),
+  login: (username: string, password: string) =>
+    send<SessionStatus>('/api/session/login', 'POST', { username, password }),
+  logout: () => send<{ ok: boolean }>('/api/session/logout', 'POST'),
+  changePassword: (current: string, next: string) =>
+    send<{ ok: boolean }>('/api/session/change-password', 'POST', { current, next }),
+  recover: (recoveryCode: string, nextPassword: string) =>
+    send<{ ok: boolean }>('/api/session/recover', 'POST', { recoveryCode, nextPassword }),
+
   listSources: () => get<Array<{ id: string; name: string }>>('/api/sources'),
 
   sourceCategories: (source: string) =>
@@ -192,7 +219,7 @@ export const api = {
   syncNode: (id: number) =>
     send<{ ok: true; enqueued: number }>(`/api/tree/nodes/${id}/sync`, 'POST'),
 
-  // ---- 扫码登录 ----
+  // ---- 上游扫码登录 ----
   qrcode: (source: string) => get<QrCode>(`/api/auth/${source}/qrcode`),
   // 轮询必须绕开一切缓存：加时间戳 + no-store
   pollQrcode: async (source: string, key: string): Promise<QrPoll> => {

@@ -5,7 +5,19 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from forager.api.app import create_app
+from forager.auth import hash_secret
 from forager.config import Settings
+
+
+TEST_PASSWORD = "test-password-123"
+
+
+def _login(client, password: str = TEST_PASSWORD) -> None:
+    """lifespan 里 bootstrap 生成的密码只在日志里；测试直接改库再走真实登录接口。"""
+    db = client.app.state.db
+    db.execute("UPDATE users SET password_hash = ? WHERE id = 1", (hash_secret(password),))
+    res = client.post("/api/session/login", json={"username": "admin", "password": password})
+    assert res.status_code == 200, res.text
 
 
 def make_settings(tmp_path) -> Settings:
@@ -28,7 +40,8 @@ def make_settings(tmp_path) -> Settings:
 
 def test_health_and_sources(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
-        assert client.get("/api/health").json() == {"status": "ok"}
+        assert client.get("/api/health").json() == {"status": "ok"}  # 健康检查不设门
+        _login(client)
         assert [s["id"] for s in client.get("/api/sources").json()] == ["local", "hanime1"]
         assert client.get("/api/library/items").json() == []
         assert client.get("/api/library/mode").json() == {"offline": False}
@@ -36,6 +49,7 @@ def test_health_and_sources(tmp_path) -> None:
 
 def test_unknown_source_is_404_with_error_shape(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         res = client.get("/api/sources/nope/list")
         assert res.status_code == 404
         assert "error" in res.json()
@@ -43,6 +57,7 @@ def test_unknown_source_is_404_with_error_shape(tmp_path) -> None:
 
 def test_search_requires_keyword(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         res = client.get("/api/sources/hanime1/search")
         assert res.status_code == 400
         assert "error" in res.json()
@@ -50,6 +65,7 @@ def test_search_requires_keyword(tmp_path) -> None:
 
 def test_tree_crud(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         created = client.post(
             "/api/tree/nodes",
             json={"source": "hanime1", "kind": "query", "value": "studio", "intervalSec": 600},
@@ -69,6 +85,7 @@ def test_tree_crud(tmp_path) -> None:
 
 def test_tree_rejects_unsupported_kind(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         res = client.post(
             "/api/tree/nodes",
             json={"source": "hanime1", "kind": "favorites", "value": ""},
@@ -80,6 +97,7 @@ def test_tree_rejects_unsupported_kind(tmp_path) -> None:
 def test_tree_browse_node_items(tmp_path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     with TestClient(app) as client:
+        _login(client)
         node = client.post(
             "/api/tree/nodes",
             json={"source": "hanime1", "kind": "partition", "value": "裏番"},
@@ -104,6 +122,7 @@ def test_tree_browse_node_items(tmp_path, monkeypatch) -> None:
 def test_library_keys_is_lightweight_list(tmp_path) -> None:
     app = create_app(make_settings(tmp_path))
     with TestClient(app) as client:
+        _login(client)
         assert client.get("/api/library/keys").json() == []
         app.state.db.execute(
             "INSERT INTO library (key, source, video_id, meta_json, quality, file_name, "
@@ -118,6 +137,7 @@ def test_local_source_is_a_source(tmp_path) -> None:
     """本地即源：列表 / 分区 / 详情 / 播放 / 进度 / 封面都走源契约。"""
     app = create_app(make_settings(tmp_path))
     with TestClient(app) as client:
+        _login(client)
         db = app.state.db
         db.execute(
             "INSERT INTO library (key, source, video_id, meta_json, quality, file_name, "
@@ -176,6 +196,7 @@ def test_local_source_is_a_source(tmp_path) -> None:
 def test_home_continue_and_recent(tmp_path) -> None:
     app = create_app(make_settings(tmp_path))
     with TestClient(app) as client:
+        _login(client)
         db = app.state.db
         for key, title in (("hanime1:1", "片一"), ("hanime1:2", "片二")):
             db.execute(
@@ -215,5 +236,6 @@ def test_home_continue_and_recent(tmp_path) -> None:
 
 def test_library_facets_and_filters(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         assert client.get("/api/library/facets").json()["total"] == 0
         assert client.get("/api/library/items?source=hanime1&category=裏番").json() == []

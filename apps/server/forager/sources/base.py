@@ -36,6 +36,8 @@ class BaseSource:
     quality_options: ClassVar[tuple[str, ...]] = ()
     #: 是否支持扫码登录（设置页据此显示按钮）
     supports_qrcode: ClassVar[bool] = False
+    #: 网页登录入口；None 表示该源不提供网页登录（设置页只显示状态）
+    login_url: ClassVar[str | None] = None
 
     def __init__(self, client: UpstreamClient) -> None:
         self.client = client

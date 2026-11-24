@@ -18,11 +18,11 @@ SECRET_FIELDS = frozenset({"cookie"})
 
 #: 前端渲染用的字段元数据
 FIELD_META: dict[str, dict[str, str]] = {
+    # 凭据不再让主公手填：设置页只提供「跳转网页登录」，Cookie 由服务端在回调里落库
     "cookie": {
-        "label": "Cookie",
-        "type": "secret",
-        "placeholder": "SESSDATA=...",
-        "help": "留空表示保持不变；浏览器登录后从 DevTools 复制",
+        "label": "登录状态",
+        "type": "login",
+        "help": "通过源站的网页登录获取，不在这里手填",
     },
     "proxy": {
         "label": "上游代理",
@@ -122,7 +122,12 @@ class SourceConfigStore:
                         {"value": q, "label": q} for q in source.quality_options
                     ]
                 value = stored.get(field)
-                if field in SECRET_FIELDS:
+                if field == "cookie":
+                    # login 类型：只告诉前端「已登录 / 未登录」与去登录的地址
+                    item["configured"] = bool(value)
+                    item["hint"] = mask(str(value)) if value else ""
+                    item["loginUrl"] = source.login_url
+                elif field in SECRET_FIELDS:
                     item["configured"] = bool(value)
                     item["hint"] = mask(str(value)) if value else ""
                 else:

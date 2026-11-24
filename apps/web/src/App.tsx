@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { destroy, init, setFocus } from '@noriginmedia/norigin-spatial-navigation'
-import { api } from '@/api/client'
+import { api, UNAUTHORIZED_EVENT } from '@/api/client'
 import { BackgroundStage } from '@/components/BackgroundStage'
 import { FocusActiveContext } from '@/components/Focusable'
 import { Player } from '@/components/Player'
 import { TopBar } from '@/components/TopBar'
 import { HomePage } from '@/pages/HomePage'
+import { LoginPage } from '@/pages/LoginPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { SourcePage } from '@/pages/SourcePage'
 import { TreePage } from '@/pages/TreePage'
@@ -74,7 +75,27 @@ export function App() {
   const [curtain, setCurtain] = useState(0)
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
   const [ready, setReady] = useState(false)
+  // 登录门：null = 还没问过服务端，先不渲染任何页面（避免闪一下再跳回登录）
+  const [authed, setAuthed] = useState<boolean | null>(null)
   const navId = useRef(0)
+
+  useEffect(() => {
+    let alive = true
+    api
+      .sessionStatus()
+      .then((state) => alive && setAuthed(state.authenticated))
+      .catch(() => alive && setAuthed(false))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // 任何请求吃到 401（会话被删、Cookie 被清）都立刻退回登录页
+  useEffect(() => {
+    const drop = () => setAuthed(false)
+    window.addEventListener(UNAUTHORIZED_EVENT, drop)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, drop)
+  }, [])
 
   useEffect(() => {
     init({
@@ -180,6 +201,19 @@ export function App() {
   const top = stage[stage.length - 1]
   const current = top?.page ?? page
 
+  if (authed === null) {
+    return <div className="min-h-screen bg-[var(--bg-base)]" aria-hidden />
+  }
+
+  if (!authed) {
+    return (
+      <div className="relative min-h-screen">
+        <BackgroundStage variant="hero" />
+        <LoginPage onSuccess={() => setAuthed(true)} />
+      </div>
+    )
+  }
+
   return (
     <div className="relative min-h-screen pb-10">
       <BackgroundStage variant={current.name === 'home' ? 'hero' : 'inner'} />
@@ -190,6 +224,10 @@ export function App() {
           settingsActive={current.name === 'settings'}
           onBack={goHome}
           onSettings={() => navigate({ name: 'settings' })}
+          onLogout={() => {
+            void api.logout().catch(() => {})
+            setAuthed(false)
+          }}
         />
       ) : null}
 

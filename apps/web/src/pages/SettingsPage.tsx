@@ -309,6 +309,35 @@ function FieldRow({
   onChange: (value: string) => void
   onClear: () => void
 }) {
+  if (field.type === 'login') {
+    return (
+      <div className="block">
+        <span className="mb-1 flex items-center justify-between text-xs font-medium text-zinc-400">
+          <span>{field.label}</span>
+          <span className="text-[11px]">
+            {field.configured ? (
+              <span className="text-emerald-300/90">已登录 {field.hint}</span>
+            ) : (
+              <span className="text-zinc-500">未登录</span>
+            )}
+          </span>
+        </span>
+        {field.loginUrl ? (
+          <Focusable scale="sm" tilt="disabled">
+            <a
+              href={field.loginUrl}
+              className="inline-flex items-center rounded-full glass px-4 py-2 text-sm text-white/85"
+            >
+              {field.configured ? '重新登录' : '跳转网页登录'}
+            </a>
+          </Focusable>
+        ) : (
+          <p className="text-xs text-zinc-500">该源不提供网页登录</p>
+        )}
+      </div>
+    )
+  }
+
   const isSecret = field.type === 'secret'
   const value = isSecret
     ? (drafted ?? '')

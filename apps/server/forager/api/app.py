@@ -6,10 +6,11 @@ import contextlib
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..auth import bootstrap, require_auth
 from ..config import Settings, load_settings
 from ..db import Database
 from ..library.cache import ImageCache, MetaCache
@@ -20,7 +21,7 @@ from ..source_config import SourceConfigStore
 from ..sources.base import SourceError
 from ..subs.scheduler import SubscriptionScheduler
 from ..transport.curl import CurlError
-from . import auth, library, settings as settings_routes, sources, tree
+from . import library, session, settings as settings_routes, source_auth, sources, tree
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source_map = create_sources(settings, db)
         app.state.settings = settings
         app.state.db = db
+        # 首次启动建账号：初始密码与恢复码只在日志里出现这一次
+        bootstrap(db)
         app.state.sources = source_map
         app.state.source_config = SourceConfigStore(
             db, SecretBox(load_key(settings.data_dir, settings.secret_key))
@@ -70,11 +73,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="forager", version="0.1.0", lifespan=lifespan)
 
-    app.include_router(sources.router)
-    app.include_router(library.router)
-    app.include_router(tree.router)
-    app.include_router(settings_routes.router)
-    app.include_router(auth.router)
+    # 会话路由本身必须公开，其余业务路由统一挂 require_auth
+    app.include_router(session.router)
+    guard = [Depends(require_auth)]
+    app.include_router(sources.router, dependencies=guard)
+    app.include_router(library.router, dependencies=guard)
+    app.include_router(tree.router, dependencies=guard)
+    app.include_router(settings_routes.router, dependencies=guard)
+    app.include_router(source_auth.router, dependencies=guard)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

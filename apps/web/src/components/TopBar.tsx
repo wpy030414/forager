@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronLeft, Settings } from 'lucide-react'
+import { ChevronLeft, LogOut, Settings } from 'lucide-react'
 import { Focusable } from './Focusable'
 
 /**
@@ -11,11 +11,13 @@ export function TopBar({
   settingsActive,
   onBack,
   onSettings,
+  onLogout,
 }: {
   showBack: boolean
   settingsActive: boolean
   onBack: () => void
   onSettings: () => void
+  onLogout: () => void
 }) {
   const [clock, setClock] = useState(formatClock())
 
@@ -48,6 +50,11 @@ export function TopBar({
             ].join(' ')}
           >
             <Settings className="h-4 w-4" />
+          </span>
+        </Focusable>
+        <Focusable focusKey="TOP-LOGOUT" scale="sm" onEnter={onLogout}>
+          <span className="flex h-9 w-9 items-center justify-center rounded-full glass text-white/60 transition duration-[var(--dur-focus-out)] hover:text-white">
+            <LogOut className="h-4 w-4" />
           </span>
         </Focusable>
       </div>

@@ -8,12 +8,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from forager.api.app import create_app
+from forager.auth import hash_secret
 from forager.config import Settings
 from forager.db import Database
 from forager.secrets import SecretBox, load_key, mask
 from forager.source_config import SourceConfigStore
 from forager.sources.hanime1 import Hanime1Source
 from forager.transport.client import UpstreamClient
+
+TEST_PASSWORD = "test-password-123"
+
+
+def _login(client, password: str = TEST_PASSWORD) -> None:
+    """lifespan 里 bootstrap 生成的密码只在日志里；测试直接改库再走真实登录接口。"""
+    db = client.app.state.db
+    db.execute("UPDATE users SET password_hash = ? WHERE id = 1", (hash_secret(password),))
+    res = client.post("/api/session/login", json={"username": "admin", "password": password})
+    assert res.status_code == 200, res.text
+
 
 COOKIE = "cf_clearance=deadbeef1234567890abcd"
 
@@ -90,6 +102,7 @@ def test_save_applies_live(tmp_path) -> None:
 
 def test_api_never_returns_plaintext(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         listing = client.get("/api/settings/sources").json()
         assert {s["source"] for s in listing} == {"hanime1"}
 
@@ -111,6 +124,7 @@ def test_api_never_returns_plaintext(tmp_path) -> None:
 
 def test_unknown_source_and_field(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
         assert client.put("/api/settings/sources/nope", json={}).status_code == 404
         # 未声明的字段被忽略，不报错也不落库
         assert client.put("/api/settings/sources/hanime1", json={"bogus": "x"}).status_code == 200
