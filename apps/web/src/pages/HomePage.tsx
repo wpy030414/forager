@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { setFocus } from '@noriginmedia/norigin-spatial-navigation'
 import { ChevronRight, Compass, Plus } from 'lucide-react'
 import { api } from '@/api/client'
+import { useShelfScroll } from '@/lib/useShelfScroll'
 import type { Facets, TreeGroup, TreeResponse } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
 import { WideCard } from '@/components/WideCard'
@@ -69,6 +70,8 @@ export function HomePage({
   const [facets, setFacets] = useState<Facets>()
   const [tree, setTree] = useState<TreeResponse>()
   const [error, setError] = useState<string>()
+  const { ref: continueRef, scrollToChild: continueScroll } = useShelfScroll<HTMLDivElement>()
+  const { ref: recentRef, scrollToChild: recentScroll } = useShelfScroll<HTMLDivElement>()
 
   useEffect(() => {
     let alive = true
@@ -133,7 +136,7 @@ export function HomePage({
     return [...active, ...upcoming].sort((left, right) => rank(left.id) - rank(right.id))
   }, [sources, facets])
 
-  const playLocal = async (item: ContinueItem) => {
+  const playLocal = async (item: ContinueItem, focusKey?: string) => {
     try {
       const [resolve, progress] = await Promise.all([
         api.play('local', item.key),
@@ -145,13 +148,14 @@ export function HomePage({
         title: item.meta.title,
         url: resolve.url,
         startAtMs: progress?.positionMs ?? item.progress.positionMs,
+        focusKey,
       })
     } catch (e) {
       setError((e as Error).message)
     }
   }
 
-  const playRecent = async (item: VideoSummary) => {
+  const playRecent = async (item: VideoSummary, focusKey?: string) => {
     try {
       const [resolve, progress] = await Promise.all([
         api.play('local', item.id),
@@ -163,6 +167,7 @@ export function HomePage({
         title: item.title,
         url: resolve.url,
         startAtMs: progress?.positionMs ?? 0,
+        focusKey,
       })
     } catch (e) {
       setError((e as Error).message)
@@ -193,23 +198,27 @@ export function HomePage({
         <div className="grid gap-10 xl:grid-cols-2">
           <Shelf
             id="continue"
+            shelfRef={continueRef}
+            scrollToChild={continueScroll}
             title="继续播放"
             action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={cont.map((item) => ({
               item,
               progressMs: item.progress.positionMs,
               durationMs: item.progress.durationMs,
-              onSelect: () => void playLocal(item),
+              onSelect: (key?: string) => void playLocal(item, key),
             }))}
           />
 
           <Shelf
             id="recent"
+            shelfRef={recentRef}
+            scrollToChild={recentScroll}
             title="为你推荐"
             action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={recent.map((item) => ({
               summary: item,
-              onSelect: () => void playRecent(item),
+              onSelect: (key?: string) => void playRecent(item, key),
             }))}
           />
         </div>
@@ -249,7 +258,7 @@ interface ShelfEntry {
   summary?: VideoSummary
   progressMs?: number
   durationMs?: number | null
-  onSelect: () => void
+  onSelect: (focusKey?: string) => void
 }
 
 function Shelf({
@@ -257,10 +266,14 @@ function Shelf({
   title,
   items,
   action,
+  shelfRef,
+  scrollToChild,
 }: {
   id: string
   title: string
   items: ShelfEntry[]
+  shelfRef: React.RefObject<HTMLDivElement | null>
+  scrollToChild: (index: number) => void
   action?: { label: string; onClick: () => void }
 }) {
   if (items.length === 0) return null
@@ -277,7 +290,10 @@ function Shelf({
           </Focusable>
         ) : null}
       </div>
-      <div className="shelf-scroll flex gap-5 overflow-x-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        ref={shelfRef}
+        className="shelf-scroll flex gap-5 overflow-x-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {items.map((entry, index) => (
           <WideCard
             key={entry.item?.key ?? entry.summary?.id}
@@ -304,7 +320,8 @@ function Shelf({
             progressMs={entry.progressMs}
             durationMs={entry.durationMs}
             focusKey={`HOME-${id.toUpperCase()}-${index}`}
-            onSelect={entry.onSelect}
+            onSelect={() => entry.onSelect(`HOME-${id.toUpperCase()}-${index}`)}
+            onReveal={() => scrollToChild(index)}
           />
         ))}
       </div>

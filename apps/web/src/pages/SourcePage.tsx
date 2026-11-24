@@ -98,7 +98,7 @@ export function SourcePage({
     setQuery(keyword.trim())
   }
 
-  const open = async (video: VideoSummary) => {
+  const open = async (video: VideoSummary, focusKey?: string) => {
     try {
       const [resolve, progress] = await Promise.all([
         api.play(source, video.id),
@@ -110,6 +110,7 @@ export function SourcePage({
         title: video.title,
         url: resolve.url,
         startAtMs: progress?.positionMs ?? 0,
+        focusKey,
       })
     } catch (e) {
       setError((e as Error).message)
@@ -171,7 +172,7 @@ export function SourcePage({
               video={video}
               inLibrary={source !== 'local' && libraryKeys.has(`${source}:${video.id}`)}
               focusKey={`SRC-${source}-${index}`}
-              onSelect={() => void open(video)}
+              onSelect={() => void open(video, `SRC-${source}-${index}`)}
             />
           ))}
         </div>

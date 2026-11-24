@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Play } from 'lucide-react'
 import { fmtBytes, fmtDuration } from '@/api/client'
 import { Focusable } from './Focusable'
@@ -14,7 +14,7 @@ interface WideCardData {
 
 /**
  * tvOS 首页横向卡片：16:9 封面 + 继续播放进度。
- * 获焦时会把自身滚到所在横向列表中间。
+ * 获焦时的居中滚动由外层货架（useShelfScroll）负责。
  */
 export function WideCard({
   card,
@@ -22,6 +22,7 @@ export function WideCard({
   durationMs,
   onSelect,
   focusKey,
+  onReveal,
   className = 'w-[clamp(260px,30vw,440px)] shrink-0',
 }: {
   card: WideCardData
@@ -29,22 +30,23 @@ export function WideCard({
   durationMs?: number | null
   onSelect: () => void
   focusKey?: string
+  /** 获焦时通知货架把本卡滚到中间 */
+  onReveal?: () => void
   className?: string
 }) {
   const [failed, setFailed] = useState(false)
   const [focused, setFocused] = useState(false)
-  const anchor = useRef<HTMLDivElement>(null)
   const cover = card.coverUrl
   const total = durationMs ? durationMs / 1000 : (card.durationSec ?? 0)
   const pct = progressMs && total ? Math.min(100, (progressMs / 1000 / total) * 100) : 0
 
   const handleFocus = () => {
     setFocused(true)
-    anchor.current?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+    onReveal?.()
   }
 
   return (
-    <div ref={anchor} className={className}>
+    <div className={className}>
       <Focusable
         focusKey={focusKey}
         onEnter={onSelect}
@@ -58,9 +60,10 @@ export function WideCard({
               alt=""
               loading="lazy"
               onError={() => setFailed(true)}
+              data-layer="img"
               className={[
-                'h-full w-full object-cover transition-transform duration-700 ease-out',
-                focused ? 'scale-[1.06]' : 'scale-100',
+                'h-full w-full object-cover transition-transform duration-700 ease-aerial',
+                focused ? 'scale-[1.03]' : 'scale-100',
               ].join(' ')}
             />
           ) : (
@@ -86,7 +89,7 @@ export function WideCard({
             </span>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 p-4">
+          <div data-layer="text" className="absolute inset-x-0 bottom-0 p-4">
             <p className="line-clamp-2 text-[17px] font-semibold leading-snug text-white drop-shadow">
               {card.title}
             </p>

@@ -28,14 +28,15 @@ export function PosterCard({
   return (
     <div className={fluid ? 'w-full' : 'w-52 shrink-0 md:w-56'}>
       <Focusable focusKey={focusKey} onEnter={onSelect} className="w-full">
-        <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-zinc-900">
+        <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-white/[0.07] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
           {cover && !failed ? (
             <img
               src={cover}
               alt=""
               loading="lazy"
               onError={() => setFailed(true)}
-              className="h-full w-full object-cover"
+              data-layer="img"
+              className="h-full w-full object-cover transition-transform duration-[var(--dur-focus)] ease-spring"
             />
           ) : (
             <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-950 px-3 text-center text-xs text-zinc-500">
@@ -57,7 +58,7 @@ export function PosterCard({
             </span>
           ) : null}
 
-          <div className="absolute inset-x-0 bottom-0 p-4">
+          <div data-layer="text" className="absolute inset-x-0 bottom-0 p-4">
             <p className="line-clamp-2 text-[15px] font-semibold leading-snug text-white drop-shadow">
               {video.title}
             </p>
