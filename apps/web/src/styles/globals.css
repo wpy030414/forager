@@ -78,36 +78,55 @@
   }
 }
 
-@keyframes veil-in {
-  from {
+/* 注意：这里用 animation-name 的语义命名——浏览器按名称取第一组匹配的
+   @keyframes，若与后面弹层的 veil-in-slow 混用前缀会导致静默取错 */
+
+/*
+ * 一层只跑一条 48s 的「盖瓦」动画：前 16.7s 淡入 → 保持 → 末 3.75s 淡出。
+ * 每层延迟 = slot × 24s，于是第 n 层淡出到一半时第 n+1 层正好盖上来，
+ * 屏幕上看就是 1.8s 的交叉淡入；图像亮度也没有空档期。
+ * 用单条动画是因为多组同属性动画在延迟未到时会被从计算值里剔除，
+ * 剩下的组会叠加合成，最终所有层都会变得不透明。
+ */
+@keyframes sweep {
+  0% {
     opacity: 0;
   }
-  to {
+  16.7% {
     opacity: 1;
+  }
+  92.25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
   }
 }
 
-@keyframes veil-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-/* 每一层：48s 漂移 + 登场淡入 + 退场淡出，全部由 --slot 推导，无需 JS 守时 */
+/*
+ * 每一层按 --slot 排班，纯 CSS 守时：
+ * - slot 0 常驻不透明，作为底；
+ * - 后续层在第「slot」个 24s 点上淡入，自己登场 22.2s 后开始淡出，
+ *   同时下一个 slot 的层正好盖上来，形成「盖瓦式」交叉淡入。
+ * 不能用「每层都先淡入再淡出」：fill-mode both 会让每层从第一帧就拿到退场终态。
+ */
 .ken-burns-layer {
   position: absolute;
   inset: 0;
   opacity: 0;
-  animation:
-    veil-in 1.8s ease both,
-    veil-out 1.8s ease both,
-    ken-burns 48s linear both;
-  animation-delay:
-    calc(var(--slot) * 24s), calc(var(--slot) * 24s + 22.2s), calc(var(--slot) * 24s);
+  animation: ken-burns 72s linear both;
   will-change: transform, opacity;
+}
+
+.ken-burns-layer[data-slot='0'] {
+  opacity: 1;
+  z-index: 1;
+}
+
+/* 只用一组 animation：多组同属性动画时，若某组延迟还没到，
+   它会被当成「尚未开始」而从计算值里消失，剩余组被迫叠加合成 */
+.ken-burns-layer:not([data-slot='0']) {
+  animation: sweep 72s linear calc(var(--slot) * 24s) both;
 }
 
 /* 第 2 轮以后（>144s）用 JS 换 key 重挂，见 BackgroundStage */
@@ -271,7 +290,7 @@
   opacity: 0;
 }
 
-[data-perf='low'] .ken-burns-layer:first-child {
+[data-perf='low'] .ken-burns-layer[data-slot='0'] {
   opacity: 1;
 }
 

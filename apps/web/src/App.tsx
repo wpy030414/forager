@@ -226,6 +226,9 @@ export function App() {
           key={curtain}
           className="animate-curtain pointer-events-none fixed inset-0 z-[45] bg-black"
           aria-hidden
+          onAnimationEnd={(event) => {
+            if (event.animationName === 'curtain') setCurtain(0)
+          }}
         />
       ) : null}
 

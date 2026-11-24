@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * Aerial 式背景：6 张全屏静图，每张 48s 缓慢漂移，约 24s 一次 1.8s 交叉淡入。
+ * Aerial 式背景：6 张全屏静图轮流漂移，约 24s 换一张、1.8s 交叉淡入。
  *
- * - 轮播排程全部写在 CSS 里（按层的 --slot 推导延迟），JS 只负责：
- *   ① 预加载后续图层；② 144s 一轮结束后换 key 重挂，让排程继续。
+ * - 排程写在 CSS 里：每层一条 72s 的 sweep（前 12s 淡入、第 22.2s 起淡出），
+ *   延迟按 --slot × 24s 错开；slot 0 常驻当底，其余层「盖瓦」式接力。
+ * - JS 只负责：① 预加载后续图层；② 144s（6 × 24s，最后一层放完）后换 key
+ *   重挂，让排程从头再来。
  * - hero / inner 两个档位共用同一个 DOM，只切换暗化与模糊——从首页进内页时
  *   画面是「玻璃慢慢变暗」，而不是换一张底图。
  */
@@ -83,6 +85,7 @@ export function BackgroundStage({ variant }: { variant: 'hero' | 'inner' }) {
           <div
             key={`${cycle}-${item.src}`}
             className="ken-burns-layer"
+            data-slot={index}
             style={{ ['--slot' as string]: index }}
             aria-hidden
           >
@@ -92,7 +95,10 @@ export function BackgroundStage({ variant }: { variant: 'hero' | 'inner' }) {
       </div>
 
       <div className={cn('absolute inset-0 transition-colors duration-500', veil)} />
-      <div className="absolute inset-0 bg-gradient-to-r from-black/35 via-transparent to-black/10" />
+      {/* 内页左缘本来就是压暗给文字用的，首页不需要，否则左侧像贴了一层黑纱 */}
+      {hero ? null : (
+        <div className="absolute inset-0 bg-gradient-to-r from-black/25 via-transparent to-transparent" />
+      )}
       {perf === 'low' ? <div className="absolute inset-0 bg-[var(--bg-base)]/45" /> : null}
     </div>
   )
