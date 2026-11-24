@@ -191,15 +191,7 @@ export function SourcePage({
   )
 }
 
-function Chip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
+function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <Focusable scale="sm" onEnter={onClick}>
       <span

@@ -46,6 +46,20 @@ export default {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      // Aerial：两档缓动（焦点 spring / 转场 expo）与几个固定时长
+      transitionTimingFunction: {
+        spring: 'cubic-bezier(0.34, 1.3, 0.36, 1)',
+        aerial: 'cubic-bezier(0.16, 1, 0.3, 1)',
+      },
+      transitionDuration: {
+        320: '320ms',
+        460: '460ms',
+        520: '520ms',
+        600: '600ms',
+      },
+      boxShadow: {
+        'focus-ring': '0 24px 60px -18px rgba(0,0,0,0.85), 0 0 42px -6px rgba(255,255,255,0.18)',
+      },
     },
   },
   plugins: [typography],

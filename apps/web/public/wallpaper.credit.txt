@@ -1,4 +1,11 @@
-来源：Unsplash
-图片 ID：photo-1506744038136-46273834b3fb
-地址：https://images.unsplash.com/photo-1506744038136-46273834b3fb
-许可：Unsplash License（可免费使用，无需署名）
+来源：Unsplash License（可免费使用，无需署名）
+统一请求参数：?auto=format&fit=crop&w=2400&h=1350&q=70
+
+1. wallpapers/01-earth.jpg         photo-1451187580459-43490279c0fa
+2. wallpapers/02-nightlake.jpg     photo-1519681393784-d120267933ba
+3. wallpapers/03-sea-horizon.jpg   photo-1534447677768-be436bb09401
+4. wallpapers/04-forest-mist.jpg   photo-1483347756197-71ef80e95f73
+5. wallpapers/05-lake-dawn.jpg     photo-1439066615861-d1af74d74000
+6. wallpapers/06-valley.jpg        photo-1464822759023-fed622ff2c3b
+
+原 wallpaper.jpg（photo-1506744038136-46273834b3fb）已由上面的轮播取代，不再使用。

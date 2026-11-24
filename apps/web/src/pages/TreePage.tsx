@@ -373,9 +373,7 @@ function RuleNode({
         <div
           className={[
             'rounded-2xl p-3 ring-1 transition',
-            selected
-              ? 'bg-emerald-400/10 ring-emerald-400/60'
-              : 'bg-white/[0.04] ring-white/5',
+            selected ? 'bg-emerald-400/10 ring-emerald-400/60' : 'bg-white/[0.04] ring-white/5',
           ].join(' ')}
         >
           <div className="flex items-center gap-2">
@@ -487,10 +485,7 @@ function BrowsePanel({
       {busy && items.length === 0 ? (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {Array.from({ length: 10 }).map((_, index) => (
-            <div
-              key={index}
-              className="aspect-[3/4] animate-pulse rounded-2xl bg-white/[0.06]"
-            />
+            <div key={index} className="aspect-[3/4] animate-pulse rounded-2xl bg-white/[0.06]" />
           ))}
         </div>
       ) : items.length === 0 ? null : (
@@ -535,7 +530,9 @@ function DownloadPanel({
   const [open, setOpen] = useState(false)
   if (jobs.length === 0) return null
 
-  const active = jobs.filter((job) => job.status === 'downloading' || job.status === 'queued').length
+  const active = jobs.filter(
+    (job) => job.status === 'downloading' || job.status === 'queued',
+  ).length
   const failed = jobs.filter((job) => job.status === 'error').length
   const done = jobs.filter((job) => job.status === 'done').length
 
@@ -566,9 +563,7 @@ function DownloadPanel({
                   <span>{job.source}</span>
                   <span>· {job.quality}</span>
                   {job.fromLibrary ? <span className="text-emerald-300">· 本地已有</span> : null}
-                  {job.qualityFallback ? (
-                    <span className="text-amber-300">· 已降级</span>
-                  ) : null}
+                  {job.qualityFallback ? <span className="text-amber-300">· 已降级</span> : null}
                   <span>
                     · {fmtBytes(job.receivedBytes)}
                     {job.totalBytes ? ` / ${fmtBytes(job.totalBytes)}` : ''}
@@ -636,12 +631,13 @@ function EpisodePicker({
   const episodes = detail.episodes ?? []
 
   const jobFor = (episode: VideoEpisode) => jobsByKey.get(jobKey(detail.source, episode.id))
-  const inLibrary = (episode: VideoEpisode) =>
-    libraryKeys.has(jobKey(detail.source, episode.id))
+  const inLibrary = (episode: VideoEpisode) => libraryKeys.has(jobKey(detail.source, episode.id))
   const pending = episodes.filter((episode) => {
     const job = jobFor(episode)
     if (inLibrary(episode)) return false
-    return !job || (job.status !== 'done' && job.status !== 'downloading' && job.status !== 'queued')
+    return (
+      !job || (job.status !== 'done' && job.status !== 'downloading' && job.status !== 'queued')
+    )
   })
 
   useEffect(() => {
@@ -689,7 +685,11 @@ function EpisodePicker({
         </header>
 
         <div className="flex items-center justify-between gap-4 border-b border-white/5 px-6 py-3">
-          <Focusable focusKey="PICKER-ALL" scale="sm" onEnter={busy ? undefined : () => void downloadAll()}>
+          <Focusable
+            focusKey="PICKER-ALL"
+            scale="sm"
+            onEnter={busy ? undefined : () => void downloadAll()}
+          >
             <span
               className={[
                 'flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold',
@@ -756,7 +756,9 @@ function EpisodePicker({
                       </div>
                     ) : null}
                   </div>
-                  {job ? <StatusChip job={job} /> : local ? (
+                  {job ? (
+                    <StatusChip job={job} />
+                  ) : local ? (
                     <span className="shrink-0 rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] text-emerald-300">
                       已入库
                     </span>

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Play } from 'lucide-react'
-import { api, fmtBytes, fmtDuration } from '@/api/client'
+import { fmtBytes, fmtDuration } from '@/api/client'
 import { Focusable } from './Focusable'
 
 interface WideCardData {
@@ -45,8 +45,13 @@ export function WideCard({
 
   return (
     <div ref={anchor} className={className}>
-      <Focusable focusKey={focusKey} onEnter={onSelect} onFocus={handleFocus} onBlur={() => setFocused(false)}>
-        <div className="group relative aspect-video overflow-hidden rounded-[22px] bg-zinc-900 ring-1 ring-white/10">
+      <Focusable
+        focusKey={focusKey}
+        onEnter={onSelect}
+        onFocus={handleFocus}
+        onBlur={() => setFocused(false)}
+      >
+        <div className="group relative aspect-video overflow-hidden rounded-[22px] bg-white/[0.07] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
           {cover && !failed ? (
             <img
               src={cover}

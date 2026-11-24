@@ -111,8 +111,8 @@ export function HomePage({
         soon: false,
         count:
           source.id === 'local'
-            ? facets?.total ?? 0
-            : facets?.sources.find((item) => item.source === source.id)?.count ?? 0,
+            ? (facets?.total ?? 0)
+            : (facets?.sources.find((item) => item.source === source.id)?.count ?? 0),
       }
     })
     const activeIds = new Set(active.map((item) => item.id))
@@ -187,13 +187,7 @@ export function HomePage({
 
   return (
     <div className="relative min-h-screen">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute inset-0 animate-slow-zoom bg-[url('/wallpaper.jpg')] bg-cover bg-center" />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-[#05060a]/35 to-[#05060a]/95" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/35 via-transparent to-black/10" />
-      </div>
-
-      <div className="relative z-10 space-y-10 px-12 pb-28 pt-24">
+      <div className="space-y-10 px-12 pb-28 pt-24">
         {error ? <p className="text-sm text-amber-300">{error}</p> : null}
 
         <div className="grid gap-10 xl:grid-cols-2">
@@ -220,7 +214,7 @@ export function HomePage({
           />
         </div>
 
-        <section className="animate-fade-up [animation-delay:120ms]">
+        <section className="animate-fade-up [animation-delay:80ms]">
           <div className="shelf-scroll flex gap-4 overflow-x-auto rounded-[30px] border border-white/10 bg-white/[0.045] p-4 backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {platforms.map((platform) => (
               <PlatformCard
@@ -234,7 +228,7 @@ export function HomePage({
           </div>
         </section>
 
-        <section className="animate-fade-up [animation-delay:220ms]">
+        <section className="animate-fade-up [animation-delay:160ms]">
           <div className="shelf-scroll flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {clueGroups.length === 0 ? (
               <ClueCreateCard onSelect={onOpenClues} />
@@ -271,7 +265,7 @@ function Shelf({
 }) {
   if (items.length === 0) return null
   return (
-    <section className="min-w-0 animate-fade-up">
+    <section className="animate-fade-up min-w-0">
       <div className="mb-2 flex items-end justify-between gap-4 px-1">
         <h2 className="text-xl font-semibold tracking-tight text-white/95">{title}</h2>
         {action ? (
@@ -322,7 +316,14 @@ function PlatformCard({
   platform,
   onSelect,
 }: {
-  platform: { id: string; label: string; mark: string; gradient: string; soon: boolean; count: number }
+  platform: {
+    id: string
+    label: string
+    mark: string
+    gradient: string
+    soon: boolean
+    count: number
+  }
   onSelect: () => void
 }) {
   return (
