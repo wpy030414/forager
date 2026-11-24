@@ -332,3 +332,61 @@
 .animate-player-out {
   animation: player-out 500ms var(--ease-aerial) both;
 }
+
+/* ---------- 弹层 ---------- */
+
+@keyframes veil-in-slow {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes veil-out-slow {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes panel-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+.animate-veil-in {
+  animation: veil-in-slow var(--dur-page-in) var(--ease-aerial) both;
+}
+
+.animate-veil-out {
+  animation: veil-out-slow 200ms var(--ease-aerial) both;
+}
+
+.animate-panel-in {
+  animation: panel-in var(--dur-page-in) var(--ease-aerial) both;
+}
+
+.animate-panel-out {
+  animation: panel-out 200ms var(--ease-aerial) both;
+}

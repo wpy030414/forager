@@ -65,3 +65,14 @@
 - 为什么不选其他：①维护手工 hosts 无法跟随 CDN 漂移；②全量代理被 CF 挑战拦截。
 - 后果：多一个运行时配置面（DNS 代理）；跨境部署时通常无需任何配置即可直连。
 - 何时重新审视：源站迁出 Cloudflare，或本地网络环境变化（如启用透明代理/DoH）。
+
+## ADR-5：Aerial 观感——纯 CSS 背景轮播 + 自建页面转场
+- 日期：2026-11-24
+- 状态：已采纳
+- 背景（遇到了什么问题）：首页有壁纸缓推，但内页是纯黑，硬切之后「进门就掉档」；焦点反馈只是 200ms 的 `transition-all` 加硬描边，缺 tvOS 的浮起感。
+- 考虑过的方案：① 引入 framer-motion 做转场编排；② View Transitions API；③ 纯 CSS keyframes + 一个自建 PageStage 容器 + norigin 焦点上下文。
+- 决策：方案③。背景 6 张 Unsplash 空镜，排程全写在 CSS（按层的 `--slot` 推导延迟），JS 只做预加载与 144s 一轮后的重挂。
+- 为什么选这个：转场必须与 norigin 的焦点注册、`setFocus` 时机同步，VT 的快照模型对不齐，且 Firefox 支持不全要维护两套降级；framer-motion 对这类固定节奏的动画是多余依赖。
+- 为什么不选其他：①多一层运行时依赖，且与空间导航的焦点时序仍需手工对齐；②快照期间旧 DOM 仍可导航，需要手动 pause/resume，降级路径等于自建一套。
+- 后果：退场页必须 `focusable=false`，且转场容器里「退场层先渲染、入场层后渲染」的顺序不能调换（同名 focusKey 由后注册者覆盖）；内页背景模糊上限 3px，全屏大图 blur 是掉帧主因。
+- 何时重新审视：若 norigin 不再需要与 DOM 同步，或 View Transitions 在各主流浏览器稳定后，可评估替换 PageStage。

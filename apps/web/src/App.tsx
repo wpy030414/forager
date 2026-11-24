@@ -204,10 +204,10 @@ export function App() {
             <div
               className={
                 entry.phase === 'exit'
-                  ? 'page-shell animate-aerial-out'
+                  ? 'animate-aerial-out [transform-origin:50%_40%]'
                   : back
-                    ? 'page-shell animate-aerial-in-back'
-                    : 'page-shell animate-aerial-in'
+                    ? 'animate-aerial-in-back [transform-origin:50%_40%]'
+                    : 'animate-aerial-in [transform-origin:50%_40%]'
               }
               onAnimationEnd={(event) => {
                 if (entry.phase === 'exit' && event.animationName === 'aerial-out') {

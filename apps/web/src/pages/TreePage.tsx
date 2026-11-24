@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Download, Plus, RefreshCw, Trash2, X } from 
 import { api, fmtBytes, fmtDuration } from '@/api/client'
 import type { TreeGroup, TreeNode, TreeResponse } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
+import { Overlay } from '@/components/ui/Overlay'
 import { PosterCard } from '@/components/PosterCard'
 
 const KIND_LABELS: Record<string, string> = {
@@ -222,21 +223,12 @@ export function TreePage() {
     }
   }
 
-  useEffect(() => {
-    if (!picker) return
-    const id = setTimeout(() => {
-      void setFocus('PICKER-ALL').catch(() => {})
-    }, 80)
-    return () => clearTimeout(id)
-  }, [picker])
+  const closePicker = () => setPicker(undefined)
 
-  const closePicker = () => {
-    setPicker(undefined)
-    if (selectedId !== null) {
-      setTimeout(() => {
-        void setFocus(`NODE-${selectedId}`).catch(() => {})
-      }, 60)
-    }
+  // 弹层退场动画结束后再把焦点还给选中的线索节点
+  const restoreNodeFocus = () => {
+    if (selectedId === null) return
+    void setFocus(`NODE-${selectedId}`).catch(() => {})
   }
 
   const total = tree?.total ?? { discovered: 0, done: 0 }
@@ -296,6 +288,7 @@ export function TreePage() {
           jobsByKey={jobsByKey}
           libraryKeys={libraryKeys}
           onClose={closePicker}
+          onExited={restoreNodeFocus}
           onDownload={(episode) => void downloadEpisode(picker.source, episode)}
           onDownloadAll={(episodes) => downloadAll(picker.source, episodes)}
         />
@@ -550,62 +543,67 @@ function DownloadPanel({
         </div>
       </Focusable>
 
-      {open ? (
-        <div className="max-h-[320px] overflow-y-auto border-t border-white/5">
-          {jobs.map((job) => (
-            <div
-              key={job.key}
-              className="flex items-center gap-3 border-b border-white/5 px-5 py-3 last:border-0"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-white">{job.title || job.key}</p>
-                <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
-                  <span>{job.source}</span>
-                  <span>· {job.quality}</span>
-                  {job.fromLibrary ? <span className="text-emerald-300">· 本地已有</span> : null}
-                  {job.qualityFallback ? <span className="text-amber-300">· 已降级</span> : null}
-                  <span>
-                    · {fmtBytes(job.receivedBytes)}
-                    {job.totalBytes ? ` / ${fmtBytes(job.totalBytes)}` : ''}
-                  </span>
+      <div
+        className="grid transition-[grid-template-rows,opacity] duration-[480ms] ease-aerial"
+        style={{ gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0 }}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="max-h-[320px] overflow-y-auto border-t border-white/5">
+            {jobs.map((job) => (
+              <div
+                key={job.key}
+                className="flex items-center gap-3 border-b border-white/5 px-5 py-3 last:border-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-white">{job.title || job.key}</p>
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                    <span>{job.source}</span>
+                    <span>· {job.quality}</span>
+                    {job.fromLibrary ? <span className="text-emerald-300">· 本地已有</span> : null}
+                    {job.qualityFallback ? <span className="text-amber-300">· 已降级</span> : null}
+                    <span>
+                      · {fmtBytes(job.receivedBytes)}
+                      {job.totalBytes ? ` / ${fmtBytes(job.totalBytes)}` : ''}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className={[
+                        'h-full rounded-full transition-all duration-300',
+                        job.status === 'done'
+                          ? 'bg-emerald-400'
+                          : job.status === 'error'
+                            ? 'bg-amber-400'
+                            : 'bg-white',
+                      ].join(' ')}
+                      style={{ width: `${job.status === 'done' ? 100 : job.progress}%` }}
+                    />
+                  </div>
+                  {job.error ? (
+                    <p className="mt-1 line-clamp-1 text-[11px] text-amber-300/90">{job.error}</p>
+                  ) : null}
                 </div>
-                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={[
-                      'h-full rounded-full transition-all duration-300',
-                      job.status === 'done'
-                        ? 'bg-emerald-400'
-                        : job.status === 'error'
-                          ? 'bg-amber-400'
-                          : 'bg-white',
-                    ].join(' ')}
-                    style={{ width: `${job.status === 'done' ? 100 : job.progress}%` }}
-                  />
-                </div>
-                {job.error ? (
-                  <p className="mt-1 line-clamp-1 text-[11px] text-amber-300/90">{job.error}</p>
+
+                <StatusChip job={job} />
+
+                {job.status === 'error' ? (
+                  <Focusable scale="sm" onEnter={() => onRetry(job)}>
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
+                      重试
+                    </span>
+                  </Focusable>
+                ) : job.status === 'queued' || job.status === 'downloading' ? (
+                  <Focusable scale="sm" onEnter={() => onCancel(job)}>
+                    <span className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-zinc-400">
+                      取消
+                    </span>
+                  </Focusable>
                 ) : null}
               </div>
-
-              <StatusChip job={job} />
-
-              {job.status === 'error' ? (
-                <Focusable scale="sm" onEnter={() => onRetry(job)}>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
-                    重试
-                  </span>
-                </Focusable>
-              ) : job.status === 'queued' || job.status === 'downloading' ? (
-                <Focusable scale="sm" onEnter={() => onCancel(job)}>
-                  <span className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-zinc-400">
-                    取消
-                  </span>
-                </Focusable>
-              ) : null}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      ) : null}
+      </div>
     </section>
   )
 }
@@ -615,6 +613,7 @@ function EpisodePicker({
   jobsByKey,
   libraryKeys,
   onClose,
+  onExited,
   onDownload,
   onDownloadAll,
 }: {
@@ -622,6 +621,7 @@ function EpisodePicker({
   jobsByKey: Map<string, DownloadJob>
   libraryKeys: Set<string>
   onClose: () => void
+  onExited: () => void
   onDownload: (episode: VideoEpisode) => void
   onDownloadAll: (episodes: VideoEpisode[]) => Promise<void>
 }) {
@@ -662,128 +662,123 @@ function EpisodePicker({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm md:p-8"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
+    <Overlay
+      open
+      onClose={onClose}
+      onEntered={() => void setFocus('PICKER-ALL').catch(() => {})}
+      onExited={onExited}
     >
-      <div
-        className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-zinc-950 ring-1 ring-white/15"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
-          <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold text-white">{detail.title}</h2>
-            <p className="mt-1 text-[11px] text-zinc-500">共 {episodes.length} 集</p>
-          </div>
-          <Focusable focusKey="PICKER-CLOSE" scale="sm" onEnter={onClose}>
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white">
-              <X className="h-4 w-4" />
-            </span>
-          </Focusable>
-        </header>
-
-        <div className="flex items-center justify-between gap-4 border-b border-white/5 px-6 py-3">
-          <Focusable
-            focusKey="PICKER-ALL"
-            scale="sm"
-            onEnter={busy ? undefined : () => void downloadAll()}
-          >
-            <span
-              className={[
-                'flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold',
-                pending.length === 0
-                  ? 'bg-white/10 text-zinc-500'
-                  : confirmAll
-                    ? 'bg-amber-400 text-black'
-                    : 'bg-white text-black',
-              ].join(' ')}
-            >
-              {busy ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Download className="h-3.5 w-3.5" />
-              )}
-              {pending.length === 0
-                ? '全部已入库'
-                : confirmAll
-                  ? `确认全部下载 ${pending.length} 集`
-                  : `全部下载（${pending.length} 集）`}
-            </span>
-          </Focusable>
+      <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold text-white">{detail.title}</h2>
+          <p className="mt-1 text-[11px] text-zinc-500">共 {episodes.length} 集</p>
         </div>
+        <Focusable focusKey="PICKER-CLOSE" scale="sm" onEnter={onClose}>
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white">
+            <X className="h-4 w-4" />
+          </span>
+        </Focusable>
+      </header>
 
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          {episodes.slice(0, visible).map((episode) => {
-            const job = jobFor(episode)
-            const local = inLibrary(episode)
-            const locked =
-              local ||
-              job?.status === 'done' ||
-              job?.status === 'downloading' ||
-              job?.status === 'queued'
-            return (
-              <Focusable
-                key={episode.id}
-                focusKey={`PICK-${episode.id}`}
-                scale="sm"
-                onEnter={locked ? undefined : () => onDownload(episode)}
-              >
-                <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition hover:bg-white/5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-white">{episode.title}</p>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
-                      {episode.durationSec ? <span>{fmtDuration(episode.durationSec)}</span> : null}
-                      {job?.status === 'downloading' ? (
-                        <span>
-                          {job.progress}% · {fmtBytes(job.receivedBytes)}
-                        </span>
-                      ) : null}
-                      {job?.error ? (
-                        <span className="truncate text-amber-300/90">{job.error}</span>
-                      ) : null}
-                    </div>
-                    {job && job.status !== 'done' ? (
-                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className={[
-                            'h-full rounded-full transition-all duration-300',
-                            job.status === 'error' ? 'bg-amber-400' : 'bg-emerald-400',
-                          ].join(' ')}
-                          style={{ width: `${job.progress}%` }}
-                        />
-                      </div>
+      <div className="flex items-center justify-between gap-4 border-b border-white/5 px-6 py-3">
+        <Focusable
+          focusKey="PICKER-ALL"
+          scale="sm"
+          onEnter={busy ? undefined : () => void downloadAll()}
+        >
+          <span
+            className={[
+              'flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold',
+              pending.length === 0
+                ? 'bg-white/10 text-zinc-500'
+                : confirmAll
+                  ? 'bg-amber-400 text-black'
+                  : 'bg-white text-black',
+            ].join(' ')}
+          >
+            {busy ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            {pending.length === 0
+              ? '全部已入库'
+              : confirmAll
+                ? `确认全部下载 ${pending.length} 集`
+                : `全部下载（${pending.length} 集）`}
+          </span>
+        </Focusable>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-3 py-2">
+        {episodes.slice(0, visible).map((episode) => {
+          const job = jobFor(episode)
+          const local = inLibrary(episode)
+          const locked =
+            local ||
+            job?.status === 'done' ||
+            job?.status === 'downloading' ||
+            job?.status === 'queued'
+          return (
+            <Focusable
+              key={episode.id}
+              focusKey={`PICK-${episode.id}`}
+              scale="sm"
+              onEnter={locked ? undefined : () => onDownload(episode)}
+            >
+              <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition hover:bg-white/5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-white">{episode.title}</p>
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                    {episode.durationSec ? <span>{fmtDuration(episode.durationSec)}</span> : null}
+                    {job?.status === 'downloading' ? (
+                      <span>
+                        {job.progress}% · {fmtBytes(job.receivedBytes)}
+                      </span>
+                    ) : null}
+                    {job?.error ? (
+                      <span className="truncate text-amber-300/90">{job.error}</span>
                     ) : null}
                   </div>
-                  {job ? (
-                    <StatusChip job={job} />
-                  ) : local ? (
-                    <span className="shrink-0 rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] text-emerald-300">
-                      已入库
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
-                      下载
-                    </span>
-                  )}
+                  {job && job.status !== 'done' ? (
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={[
+                          'h-full rounded-full transition-all duration-300',
+                          job.status === 'error' ? 'bg-amber-400' : 'bg-emerald-400',
+                        ].join(' ')}
+                        style={{ width: `${job.progress}%` }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
-              </Focusable>
-            )
-          })}
+                {job ? (
+                  <StatusChip job={job} />
+                ) : local ? (
+                  <span className="shrink-0 rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] text-emerald-300">
+                    已入库
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
+                    下载
+                  </span>
+                )}
+              </div>
+            </Focusable>
+          )
+        })}
 
-          {visible < episodes.length ? (
-            <div className="flex justify-center py-3">
-              <Focusable scale="sm" onEnter={() => setVisible((value) => value + 100)}>
-                <span className="rounded-full bg-white/10 px-4 py-1.5 text-[11px] text-white">
-                  显示更多
-                </span>
-              </Focusable>
-            </div>
-          ) : null}
-        </div>
+        {visible < episodes.length ? (
+          <div className="flex justify-center py-3">
+            <Focusable scale="sm" onEnter={() => setVisible((value) => value + 100)}>
+              <span className="rounded-full bg-white/10 px-4 py-1.5 text-[11px] text-white">
+                显示更多
+              </span>
+            </Focusable>
+          </div>
+        ) : null}
       </div>
-    </div>
+    </Overlay>
   )
 }
 

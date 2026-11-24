@@ -167,7 +167,7 @@ function SourceCard({
         </div>
       </header>
 
-      {qrOpen && cfg.canQrcode ? <QrLogin source={cfg.source} onDone={onQrDone} /> : null}
+      {cfg.canQrcode ? <QrLogin source={cfg.source} open={qrOpen} onDone={onQrDone} /> : null}
 
       <div className="space-y-4">
         {cfg.fields.map((field) => (
@@ -199,7 +199,15 @@ function SourceCard({
   )
 }
 
-function QrLogin({ source, onDone }: { source: string; onDone: () => void | Promise<void> }) {
+function QrLogin({
+  source,
+  open,
+  onDone,
+}: {
+  source: string
+  open: boolean
+  onDone: () => void | Promise<void>
+}) {
   const [qr, setQr] = useState<QrCode>()
   const [phase, setPhase] = useState<'loading' | 'wait' | 'scanned' | 'done' | 'expired' | 'error'>(
     'loading',
@@ -255,24 +263,36 @@ function QrLogin({ source, onDone }: { source: string; onDone: () => void | Prom
   }, [qr, phase, source, onDone])
 
   return (
-    <div className="mb-5 flex items-center gap-5 rounded-2xl bg-black/30 p-4">
-      {qr && phase !== 'expired' && phase !== 'error' ? (
-        <img src={qr.image} alt="登录二维码" className="h-40 w-40 rounded-xl bg-white p-1" />
-      ) : (
-        <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-white/5 text-xs text-zinc-500">
-          {phase === 'loading' ? '生成中' : phase === 'expired' ? '已过期' : '不可用'}
+    <div
+      className="grid transition-[grid-template-rows,opacity,margin] duration-[480ms] ease-aerial"
+      style={{
+        gridTemplateRows: open ? '1fr' : '0fr',
+        opacity: open ? 1 : 0,
+        marginBottom: open ? '1.25rem' : 0,
+      }}
+      aria-hidden={!open}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div className="flex items-center gap-5 rounded-2xl bg-black/30 p-4">
+          {qr && phase !== 'expired' && phase !== 'error' ? (
+            <img src={qr.image} alt="登录二维码" className="h-40 w-40 rounded-xl bg-white p-1" />
+          ) : (
+            <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-white/5 text-xs text-zinc-500">
+              {phase === 'loading' ? '生成中' : phase === 'expired' ? '已过期' : '不可用'}
+            </div>
+          )}
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-white">{message}</p>
+            {phase === 'expired' || phase === 'error' ? (
+              <Focusable scale="sm" onEnter={() => void start()}>
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white">
+                  <RefreshCw className="h-3 w-3" />
+                  刷新二维码
+                </span>
+              </Focusable>
+            ) : null}
+          </div>
         </div>
-      )}
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-white">{message}</p>
-        {phase === 'expired' || phase === 'error' ? (
-          <Focusable scale="sm" onEnter={() => void start()}>
-            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white">
-              <RefreshCw className="h-3 w-3" />
-              刷新二维码
-            </span>
-          </Focusable>
-        ) : null}
       </div>
     </div>
   )

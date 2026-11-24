@@ -29,7 +29,7 @@ export function TopBar({
       <div>
         {showBack ? (
           <Focusable focusKey="TOP-BACK" scale="sm" onEnter={onBack}>
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/35 text-white/85 backdrop-blur transition hover:bg-black/50">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full glass text-white/85 transition duration-[var(--dur-focus-out)] hover:bg-white/15">
               <ChevronLeft className="h-4 w-4" />
             </span>
           </Focusable>
@@ -37,14 +37,14 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-3">
-        <span className="rounded-full bg-black/35 px-4 py-1.5 text-sm font-medium tabular-nums text-white/85 backdrop-blur">
+        <span className="rounded-full glass px-4 py-1.5 text-sm font-medium tabular-nums text-white/85">
           {clock}
         </span>
         <Focusable focusKey="TOP-SETTINGS" scale="sm" onEnter={onSettings}>
           <span
             className={[
-              'flex h-9 w-9 items-center justify-center rounded-full backdrop-blur transition',
-              settingsActive ? 'bg-white text-black' : 'bg-black/35 text-white/75',
+              'flex h-9 w-9 items-center justify-center rounded-full glass transition duration-[var(--dur-focus-out)]',
+              settingsActive ? 'bg-white text-black' : 'text-white/75',
             ].join(' ')}
           >
             <Settings className="h-4 w-4" />
