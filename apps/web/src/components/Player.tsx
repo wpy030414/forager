@@ -23,6 +23,7 @@ export function Player({
   const videoRef = useRef<HTMLVideoElement>(null)
   const { ref: focusRef } = useFocusable({
     focusKey: 'PLAYER',
+    focusable: !closing,
     isFocusBoundary: true,
     onEnterPress: () => toggle(),
   })
@@ -30,6 +31,7 @@ export function Player({
   const [showControls, setShowControls] = useState(true)
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [closing, setClosing] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSave = useRef(0)
 
@@ -53,6 +55,14 @@ export function Player({
       }
     }
   }, [])
+
+  /** 退场：先冻结画面与焦点，等黑场演完再真正卸载 */
+  const requestExit = () => {
+    if (closing) return
+    setClosing(true)
+    videoRef.current?.pause()
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+  }
 
   const poke = () => {
     setShowControls(true)
@@ -95,7 +105,7 @@ export function Player({
           break
         case 'Escape':
         case 'Backspace':
-          onExit()
+          requestExit()
           break
       }
     }
@@ -104,7 +114,17 @@ export function Player({
   })
 
   return (
-    <div ref={focusRef} className="fixed inset-0 z-50 bg-black" onMouseMove={poke}>
+    <div
+      ref={focusRef}
+      className={[
+        'fixed inset-0 z-50 bg-black',
+        closing ? 'animate-player-out' : 'animate-player-in',
+      ].join(' ')}
+      onMouseMove={poke}
+      onAnimationEnd={(event) => {
+        if (closing && event.animationName === 'player-out') onExit()
+      }}
+    >
       <video
         ref={videoRef}
         src={src}
@@ -121,7 +141,7 @@ export function Player({
             onProgress(v.currentTime * 1000, (v.duration || 0) * 1000)
           }
         }}
-        onEnded={onExit}
+        onEnded={requestExit}
         onClick={toggle}
         autoPlay
       />

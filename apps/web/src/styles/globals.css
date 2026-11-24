@@ -301,3 +301,34 @@
     transform: none !important;
   }
 }
+
+/* ---------- 播放器：黑场进出 ---------- */
+
+@keyframes player-in {
+  0% {
+    opacity: 0;
+  }
+  55% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes player-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-player-in {
+  animation: player-in var(--dur-player) var(--ease-aerial) both;
+}
+
+.animate-player-out {
+  animation: player-out 500ms var(--ease-aerial) both;
+}
