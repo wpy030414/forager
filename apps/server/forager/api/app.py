@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..auth import bootstrap, require_auth
+from ..clues.scheduler import FetcherScheduler
 from ..config import Settings, load_settings
 from ..db import Database
 from ..library.cache import ImageCache, MetaCache
@@ -19,9 +20,8 @@ from ..sources import create_sources
 from ..secrets import SecretBox, load_key
 from ..source_config import SourceConfigStore
 from ..sources.base import SourceError
-from ..subs.scheduler import SubscriptionScheduler
 from ..transport.curl import CurlError
-from . import library, session, settings as settings_routes, source_auth, sources, tree
+from . import fetchers, library, session, settings as settings_routes, source_auth, sources
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,14 +52,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.downloader = Downloader(
             db, source_map, concurrency=settings.download_concurrency, log=log.info
         )
-        app.state.scheduler = SubscriptionScheduler(
+        app.state.scheduler = FetcherScheduler(
             db,
             source_map,
             app.state.downloader,
-            initial=settings.sub_initial,
             tick=settings.sub_tick_sec,
             log=log.info,
         )
+        # 下载终态与库条目删除都要写回作品台账：补投与去重靠它
+        app.state.downloader.on_settled = app.state.scheduler.ledger.settle
+        app.state.downloader.on_removed = app.state.scheduler.ledger.mark_removed
         await app.state.downloader.start()
         await app.state.scheduler.start()
         log.info("forager 启动：data=%s 源=%s", db.root, ", ".join(source_map))
@@ -78,7 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     guard = [Depends(require_auth)]
     app.include_router(sources.router, dependencies=guard)
     app.include_router(library.router, dependencies=guard)
-    app.include_router(tree.router, dependencies=guard)
+    app.include_router(fetchers.router, dependencies=guard)
     app.include_router(settings_routes.router, dependencies=guard)
     app.include_router(source_auth.router, dependencies=guard)
 

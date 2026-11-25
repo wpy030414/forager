@@ -1,12 +1,37 @@
 name: forager
 
 services:
+  # 出口代理（mihomo / Clash Meta）：应用内的全部上游流量都经 http://mihomo:7890 出去，
+  # 分流与 DNS 在 clash/config.example.yaml 里配置，订阅地址见 .env 的 CLASH_SUBSCRIBE_URL。
+  mihomo:
+    image: ${MIHOMO_IMAGE:-metacubex/mihomo}:${MIHOMO_TAG:-v1.19.34}
+    container_name: forager-mihomo
+    restart: unless-stopped
+    environment:
+      CLASH_SUBSCRIBE_URL: ${CLASH_SUBSCRIBE_URL:-}
+    volumes:
+      - ./clash:/root/.config/mihomo
+      - ./docker/mihomo-entrypoint.sh:/usr/local/bin/mihomo-entrypoint:ro
+    # 用 sh 调脚本，不依赖挂载文件的可执行位
+    entrypoint: ["/bin/sh", "/usr/local/bin/mihomo-entrypoint"]
+    # 无认证代理：默认只在 compose 网络内可达。想让局域网其它设备共用时再放开。
+    # ports:
+    #   - "${CLASH_MIXED_PORT:-7890}:7890"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   forager:
     build:
       context: .
     image: xrl/forager:latest
     container_name: forager
     restart: unless-stopped
+    depends_on:
+      # 只管启动顺序：代理坏了不能拖垮 forager
+      - mihomo
     ports:
       - "${PORT:-11408}:11408"
     volumes:
@@ -18,10 +43,12 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       FORAGER_SECRET_KEY: ${FORAGER_SECRET_KEY:-}
+      # 应用内全部上游流量的出口：默认经 mihomo 容器
+      FORAGER_PROXY: ${FORAGER_PROXY:-http://mihomo:7890}
       FORAGER_DOWNLOAD_CONCURRENCY: ${FORAGER_DOWNLOAD_CONCURRENCY:-1}
-      FORAGER_SUB_INITIAL: ${FORAGER_SUB_INITIAL:-3}
       FORAGER_SUB_TICK: ${FORAGER_SUB_TICK:-30}
       FORAGER_MIN_INTERVAL_MS: ${FORAGER_MIN_INTERVAL_MS:-400}
+      # 各源的单独覆盖（留空 = 跟随上面的全局出口）
       HANIME1_PROXY: ${HANIME1_PROXY:-}
       HANIME1_DNS_PROXY: ${HANIME1_DNS_PROXY:-}
       HANIME1_RESOLVE: ${HANIME1_RESOLVE:-}

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from forager.api.app import create_app
 from forager.auth import hash_secret
 from forager.config import Settings
+from forager.sources.hanime1 import Hanime1Source
 
 
 TEST_PASSWORD = "test-password-123"
@@ -34,7 +35,6 @@ def make_settings(tmp_path) -> Settings:
         html_cache_ttl_ms=0,
         download_concurrency=1,
         sub_tick_sec=3600,
-        sub_initial=0,
     )
 
 
@@ -63,60 +63,106 @@ def test_search_requires_keyword(tmp_path) -> None:
         assert "error" in res.json()
 
 
-def test_tree_crud(tmp_path) -> None:
+def test_fetchers_and_clues_crud(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         _login(client)
-        created = client.post(
-            "/api/tree/nodes",
-            json={"source": "hanime1", "kind": "query", "value": "studio", "intervalSec": 600},
-        )
+        empty = client.get("/api/fetchers").json()
+        assert empty["fetchers"] == []
+        assert empty["total"] == {"discovered": 0, "done": 0, "pending": 0, "failed": 0}
+        assert [s["id"] for s in empty["sources"]] == ["hanime1", "pixiv"]  # 本地源不进线索
+        assert [t["value"] for t in empty["triggers"]] == ["manual", "1h", "1d", "1w", "1m"]
+
+        created = client.post("/api/fetchers", json={"name": "每日", "trigger": "1d"})
         assert created.status_code == 201
-        node = created.json()
-        assert node["value"] == "studio"
-        assert node["kind"] == "query"
+        fetcher = created.json()
+        assert (fetcher["name"], fetcher["trigger"], fetcher["clues"]) == ("每日", "1d", [])
+        assert client.post("/api/fetchers", json={"name": "x", "trigger": "sometimes"}).status_code == 400
 
-        tree = client.get("/api/tree").json()
-        assert [g["source"] for g in tree["sources"]] == ["hanime1", "pixiv"]
-        assert tree["sources"][0]["total"] == {"discovered": 0, "done": 0}
+        clue = client.post(
+            "/api/clues",
+            json={
+                "fetcherId": fetcher["id"],
+                "source": "hanime1",
+                "partition": "裏番",
+                "keyword": "studio",
+                "pages": 5,
+            },
+        )
+        assert clue.status_code == 201
+        body = clue.json()
+        assert (body["source"], body["partition"], body["keyword"], body["pages"]) == (
+            "hanime1", "裏番", "studio", 5,
+        )
+        assert body["title"] == "裏番 · 关键词「studio」 · 前 5 页"
+        assert body["derived"] is False
 
-        assert client.delete(f"/api/tree/nodes/{node['id']}").json() == {"ok": True}
-        assert client.get("/api/tree").json()["total"]["discovered"] == 0
+        listed = client.get("/api/fetchers").json()
+        assert [f["id"] for f in listed["fetchers"]] == [fetcher["id"]]
+        assert [c["id"] for c in listed["fetchers"][0]["clues"]] == [body["id"]]
+        assert listed["sources"][0]["categories"][0] == {"id": "裏番", "name": "裏番"}
+
+        assert client.delete(f"/api/clues/{body['id']}").json() == {"ok": True}
+        assert client.get("/api/fetchers").json()["fetchers"][0]["clues"] == []
+        assert client.delete(f"/api/clues/{body['id']}").status_code == 404
+        assert client.delete(f"/api/fetchers/{fetcher['id']}").json() == {"ok": True}
+        assert client.delete(f"/api/fetchers/{fetcher['id']}").status_code == 404
+        assert client.get("/api/fetchers").json()["fetchers"] == []
 
 
-def test_tree_rejects_unsupported_kind(tmp_path) -> None:
+def test_clue_validation(tmp_path) -> None:
     with TestClient(create_app(make_settings(tmp_path))) as client:
         _login(client)
-        res = client.post(
-            "/api/tree/nodes",
-            json={"source": "hanime1", "kind": "favorites", "value": ""},
-        )
-        assert res.status_code == 400
-        assert "不支持" in res.json()["error"]
+        fetcher_id = client.post("/api/fetchers", json={"name": "f"}).json()["id"]
+
+        def post(**extra):
+            return client.post("/api/clues", json={"fetcherId": fetcher_id, **extra})
+
+        assert post(source="hanime1", uploader="123").status_code == 400  # Hanime1 没有发布者维度
+        assert post(source="hanime1", partition="不存在的分区").status_code == 400
+        assert post(source="hanime1", pages=501).status_code == 400
+        assert post(source="hanime1", pages="abc").status_code == 400
+        assert post(source="pixiv", partition="daily", keyword="miku").status_code == 400  # 只能填一项
+        assert post(source="pixiv", partition="daily", pages=0).status_code == 400  # 排行榜没有「全部」
+        assert post(source="nope").status_code == 400
+        assert client.post("/api/clues", json={"fetcherId": 999, "source": "hanime1"}).status_code == 400
+
+        assert post(source="hanime1", pages=0).status_code == 201  # 什么都不填 = 全站最新
+        assert post(source="pixiv", partition="daily", pages=1).status_code == 201
+        assert post(source="pixiv", uploader="123").status_code == 201
+        assert post(source="pixiv", kind="favorites").status_code == 201
 
 
-def test_tree_browse_node_items(tmp_path, monkeypatch) -> None:
+def test_clue_items_browse_without_recording(tmp_path, monkeypatch) -> None:
+    """选中线索浏览在线内容：只读，不写线索记忆、不入下载队列。"""
     app = create_app(make_settings(tmp_path))
     with TestClient(app) as client:
         _login(client)
-        node = client.post(
-            "/api/tree/nodes",
-            json={"source": "hanime1", "kind": "partition", "value": "裏番"},
+        fetcher_id = client.post("/api/fetchers", json={"name": "f"}).json()["id"]
+        clue = client.post(
+            "/api/clues",
+            json={"fetcherId": fetcher_id, "source": "hanime1", "partition": "裏番", "pages": 2},
         ).json()
 
-        async def fake_browse(kind: str, value: str, page: int = 1) -> dict:
-            assert (kind, value, page) == ("partition", "裏番", 1)
+        async def fake_discover(self, query, page: int = 1) -> dict:
+            assert (query.category, query.keyword, page) == ("裏番", None, 2)
             return {
                 "items": [{"id": "2747", "source": "hanime1", "title": "某作", "kind": "video"}],
-                "page": 1,
+                "page": 2,
                 "hasMore": False,
             }
 
-        monkeypatch.setattr(app.state.sources["hanime1"], "browse", fake_browse)
-        res = client.get(f"/api/tree/nodes/{node['id']}/items")
+        monkeypatch.setattr(Hanime1Source, "discover", fake_discover)
+        res = client.get(f"/api/clues/{clue['id']}/items?page=2")
         assert res.status_code == 200
         assert res.json()["items"][0]["kind"] == "video"
 
-        assert client.get("/api/tree/nodes/99999/items").status_code == 404
+        assert app.state.db.query("SELECT * FROM clue_seen") == []
+        assert client.get("/api/library/downloads").json() == {
+            "jobs": [],
+            "counts": {"queued": 0, "downloading": 0, "done": 0, "error": 0},
+        }
+
+        assert client.get("/api/clues/99999/items").status_code == 404
 
 
 def test_library_keys_is_lightweight_list(tmp_path) -> None:
@@ -187,10 +233,22 @@ def test_local_source_is_a_source(tmp_path) -> None:
 
         # 本地源不进设置页，也不参与线索
         assert all(item["source"] != "local" for item in client.get("/api/settings/sources").json())
-        assert client.post(
-            "/api/tree/nodes",
-            json={"source": "local", "kind": "query", "value": "x", "intervalSec": 600},
-        ).status_code == 400
+        fetcher_id = client.post("/api/fetchers", json={"name": "f"}).json()["id"]
+        assert (
+            client.post(
+                "/api/clues", json={"fetcherId": fetcher_id, "source": "local", "keyword": "x"}
+            ).status_code
+            == 400
+        )
+
+
+def test_hanime1_source_page_offers_genres(tmp_path) -> None:
+    """源浏览页与线索表单共用同一张分区表。"""
+    with TestClient(create_app(make_settings(tmp_path))) as client:
+        _login(client)
+        genres = client.get("/api/sources/hanime1/categories").json()
+        assert {"裏番", "Motion Anime", "3DCG"} <= {g["id"] for g in genres}
+        assert all(g["id"] == g["name"] for g in genres)
 
 
 def test_home_continue_and_recent(tmp_path) -> None:

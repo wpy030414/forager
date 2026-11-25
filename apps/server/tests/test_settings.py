@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
@@ -13,6 +14,7 @@ from forager.config import Settings
 from forager.db import Database
 from forager.secrets import SecretBox, load_key, mask
 from forager.source_config import SourceConfigStore
+from forager.sources import create_sources
 from forager.sources.hanime1 import Hanime1Source
 from forager.transport.client import UpstreamClient
 
@@ -44,7 +46,6 @@ def make_settings(tmp_path) -> Settings:
         html_cache_ttl_ms=0,
         download_concurrency=1,
         sub_tick_sec=3600,
-        sub_initial=0,
     )
 
 
@@ -128,3 +129,33 @@ def test_unknown_source_and_field(tmp_path) -> None:
         assert client.put("/api/settings/sources/nope", json={}).status_code == 404
         # 未声明的字段被忽略，不报错也不落库
         assert client.put("/api/settings/sources/hanime1", json={"bogus": "x"}).status_code == 200
+
+
+def test_proxy_precedence_and_clearing_reverts_to_default(tmp_path) -> None:
+    """设置页保存值 > 该源环境变量 > 全局 FORAGER_PROXY；清空即回退，不用重启。"""
+    settings = dataclasses.replace(
+        make_settings(tmp_path),
+        proxy="http://mihomo:7890",
+        pixiv_proxy="http://pixiv-proxy:1",
+    )
+    db = Database(tmp_path / "data")
+    sources = create_sources(settings, db)
+    store = SourceConfigStore(db, SecretBox(load_key(tmp_path, None)))
+    hanime1, pixiv = sources["hanime1"], sources["pixiv"]
+    try:
+        assert hanime1.client.proxy == "http://mihomo:7890"  # 未单独配置：跟随全局出口
+        assert pixiv.client.proxy == "http://pixiv-proxy:1"  # 源自己的环境变量优先
+
+        store.save("hanime1", hanime1.config_fields, {"proxy": "http://override:2"})
+        store.apply_all(sources)
+        assert hanime1.client.proxy == "http://override:2"
+
+        store.save("hanime1", hanime1.config_fields, {"proxy": ""})
+        store.apply_all(sources)
+        assert hanime1.client.proxy == "http://mihomo:7890"  # 清空后回到默认，而不是停在旧值
+
+        described = next(item for item in store.describe(sources) if item["source"] == "hanime1")
+        proxy = next(field for field in described["fields"] if field["key"] == "proxy")
+        assert (proxy["value"], proxy["placeholder"]) == ("", "http://mihomo:7890")
+    finally:
+        db.close()

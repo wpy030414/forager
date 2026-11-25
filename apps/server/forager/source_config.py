@@ -103,8 +103,14 @@ class SourceConfigStore:
     # ---- 应用与展示 ----
 
     def apply_all(self, sources: dict[str, BaseSource]) -> None:
+        """环境变量默认值打底、设置页保存值覆盖。
+
+        合并后每个字段都在字典里，所以某字段被清空时会回到默认值，
+        而不是让内存里的 client 继续用旧值。
+        """
         for source_id, source in sources.items():
-            source.apply_config(self.values(source_id, source.config_fields))
+            stored = self.values(source_id, source.config_fields)
+            source.apply_config({**source.env_config, **stored})
 
     def describe(self, sources: dict[str, BaseSource]) -> list[dict[str, Any]]:
         result = []
@@ -127,6 +133,9 @@ class SourceConfigStore:
                     item["hint"] = mask(str(value)) if value else ""
                 else:
                     item["value"] = value if value is not None else ""
+                    if field == "proxy" and value is None and source.env_config.get("proxy"):
+                        # 留空即跟随全局出口；把生效中的地址显示出来
+                        item["placeholder"] = source.env_config["proxy"]
                 fields.append(item)
             result.append(
                 {

@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import json
 import re
+from html import unescape
 from typing import Any, ClassVar
 from urllib.parse import quote
 
 from ..transport.curl import StreamResponse
-from .base import BaseSource, SourceError
+from .base import BaseSource, ClueQuery, SourceError
 
 WEB = "https://www.pixiv.net"
 IMG_HEADERS = {"Referer": "https://www.pixiv.net/"}
@@ -58,7 +59,8 @@ class PixivSource(BaseSource):
         "pinned_ip",
         "min_interval_ms",
     )
-    kinds: ClassVar[tuple[str, ...]] = ("query", "partition", "uploader", "favorites", "following")
+    kinds: ClassVar[tuple[str, ...]] = ("search", "favorites", "following")
+    discover_fields: ClassVar[tuple[str, ...]] = ("category", "keyword", "uploader")
     quality_options: ClassVar[tuple[str, ...]] = ()
 
     # ---- 契约：浏览 / 搜索 / 详情 ----
@@ -104,11 +106,32 @@ class PixivSource(BaseSource):
 
     # ---- 契约：线索发现 ----
 
+    def validate_clue(self, query: ClueQuery, pages: int) -> None:
+        """Pixiv 的排行榜、搜索、画师是三个互不相干的接口，只能取其一。"""
+        super().validate_clue(query, pages)
+        if query.kind != "search":
+            return
+        filled = [
+            label
+            for label, value in (
+                ("分区", query.category),
+                ("关键词", query.keyword),
+                ("画师", query.uploader),
+            )
+            if value
+        ]
+        if len(filled) > 1:
+            raise SourceError(f"Pixiv 的分区、关键词、画师只能填一项（现在填了{'、'.join(filled)}）", 400)
+        if query.category and pages == 0:
+            raise SourceError("Pixiv 排行榜不支持「全部」", 400)
+
     async def uploader_items(self, value: str, page: int = 1) -> dict[str, Any]:
         uid = normalize_id(value)
         if not uid:
             raise SourceError(f"无效的画师 ID：{value}", 400)
         page_no = clamp_page(page)
+        if page_no > MAX_PAGES:
+            return {"items": [], "page": page_no, "hasMore": False}  # 翻到顶：给「全部」一个干净的终点
         ids = await self._user_illust_ids(uid, page_no)
         items = await self._hydrate(uid, ids)
         return {"items": items, "page": page_no, "hasMore": len(ids) >= BATCH}
@@ -298,6 +321,17 @@ def build_detail(source_id: str, vid: str, body: dict[str, Any], pages: Any) -> 
         detail["uploader"] = body["userName"]
     if tags:
         detail["category"] = tags[0]
+
+    # 页面携带的元信息：简介 / 上传时间 / 浏览数 / 画师 ID
+    comment = strip_html(body.get("illustComment"))
+    if comment:
+        detail["description"] = comment
+    if body.get("createDate"):
+        detail["uploadDate"] = str(body["createDate"])
+    if body.get("viewCount") is not None:
+        detail["views"] = _to_int(body["viewCount"])
+    if body.get("userId"):
+        detail["userId"] = str(body["userId"])
     if body.get("illustType") == 2:
         detail["note"] = "ugoira 动图：首版按首帧处理"
 
@@ -320,6 +354,20 @@ def normalize_id(raw: str) -> str:
         return text
     match = re.search(r"/artworks/(\d+)", text) or re.search(r"/users/(\d+)", text)
     return match.group(1) if match else ""
+
+
+def strip_html(html: str | None) -> str:
+    """Pixiv 的简介是 HTML 片段：换行保留，标签去掉，实体还原。"""
+    text = re.sub(r"<br\s*/?>", "\n", html or "", flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return unescape(text).strip()
+
+
+def _to_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def clamp_page(page: int) -> int:

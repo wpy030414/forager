@@ -10,6 +10,8 @@ steps:
     run: |
       touch .env
       grep -q '^PORT=' .env || echo 'PORT=8096' >> .env
+      # 代理订阅地址：留空时 mihomo 以全部直连运行，部署后记得回来填
+      grep -q '^CLASH_SUBSCRIBE_URL=' .env || echo 'CLASH_SUBSCRIBE_URL=' >> .env
       mkdir -p data
 
   - name: Build

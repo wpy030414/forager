@@ -29,3 +29,8 @@ data/
 *.pyc
 .pytest_cache/
 apps/server/static/
+
+# mihomo（Clash Meta）：仓库只保留两份配置模板，订阅缓存与渲染产物不入库
+clash/*
+!clash/config.example.yaml
+!clash/config.direct.yaml

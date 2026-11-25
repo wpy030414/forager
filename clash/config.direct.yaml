@@ -1,0 +1,34 @@
+# forager 专用 mihomo（Clash Meta）配置模板：没有配置订阅时的兜底，全部直连。
+#
+# CLASH_SUBSCRIBE_URL 为空时由 docker/mihomo-entrypoint.sh 渲染这份配置，
+# forager 仍然只认 mihomo 一个出口，但请求直连目标站点，解析走下面的 DoH。
+
+mixed-port: 7890          # HTTP 与 SOCKS5 共用一个端口；forager 只用这一个出口
+allow-lan: true           # forager 是另一个容器，从 mihomo 看属于「局域网」设备
+bind-address: "*"
+mode: rule
+log-level: warning
+ipv6: false
+ip-version: ipv4-prefer
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  default-nameserver:    # 必须是纯 IP：用来解析下面这些 DoH 自己的域名
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  # hanime1 在本地 DNS 与部分国内 DoH 上会被污染：定向到境外 DoH
+  nameserver-policy:
+    "+.hanime1.me":
+      - https://1.1.1.1/dns-query
+      - https://dns.google/dns-query
+    "+.hembed.com":
+      - https://1.1.1.1/dns-query
+      - https://dns.google/dns-query
+
+rules:
+  - MATCH,DIRECT

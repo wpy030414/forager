@@ -175,8 +175,16 @@ async def create_download(request: Request) -> dict[str, Any]:
 
 
 @router.get("/downloads")
-async def list_downloads(request: Request) -> list[dict[str, Any]]:
-    return request.app.state.downloader.list()
+async def list_downloads(
+    request: Request, limit: int = 200, keys: str | None = None
+) -> dict[str, Any]:
+    """下载列表（裁剪）：jobs = 进行中 + 最近结束的若干条，外加各状态计数。
+
+    「全部」的线索一轮可入队上万条，2 秒一次的轮询不能全量返回；
+    带 keys（逗号分隔）时精确返回这些任务，供浏览页卡片显示进度。
+    """
+    wanted = [key for key in (keys or "").split(",") if key] or None
+    return request.app.state.downloader.snapshot(limit, wanted)
 
 
 @router.get("/downloads/{key}")

@@ -32,7 +32,6 @@ def make_settings(tmp_path):
         html_cache_ttl_ms=0,
         download_concurrency=1,
         sub_tick_sec=3600,
-        sub_initial=0,
     )
 
 

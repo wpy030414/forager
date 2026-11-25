@@ -20,11 +20,19 @@ DEFAULT_UA = (
 
 
 def create_sources(settings: Settings, db: Database | None = None) -> dict[str, BaseSource]:
+    """按配置装配各源。
+
+    代理的优先级是「设置页保存值 > 该源环境变量 > 全局 FORAGER_PROXY」：
+    这里只负责后两者的合并，并把合并结果记进 env_config，
+    供 SourceConfigStore.apply_all 在设置页清空某字段时回退。
+    """
+    proxy = settings.proxy or None
+
     hanime1 = Hanime1Source(
         UpstreamClient(
             base_url=settings.hanime1_base_url,
             user_agent=DEFAULT_UA,
-            proxy=settings.hanime1_proxy,
+            proxy=settings.hanime1_proxy or proxy,
             dns_proxy=settings.hanime1_dns_proxy,
             pinned_ip=settings.hanime1_pinned_ip,
             cookie=settings.hanime1_cookie,
@@ -32,17 +40,33 @@ def create_sources(settings: Settings, db: Database | None = None) -> dict[str, 
             cache_ttl_ms=settings.html_cache_ttl_ms,
         )
     )
+    hanime1.env_config = {
+        "cookie": settings.hanime1_cookie,
+        "proxy": settings.hanime1_proxy or proxy,
+        "dns_proxy": settings.hanime1_dns_proxy,
+        "pinned_ip": settings.hanime1_pinned_ip,
+        "min_interval_ms": settings.min_interval_ms,
+    }
+
     pixiv = PixivSource(
         UpstreamClient(
             base_url="https://www.pixiv.net",
             user_agent=DEFAULT_UA,
-            proxy=settings.pixiv_proxy,
+            proxy=settings.pixiv_proxy or proxy,
             cookie=settings.pixiv_cookie,
             referer="https://www.pixiv.net/",
             min_interval_ms=settings.min_interval_ms,
             cache_ttl_ms=settings.html_cache_ttl_ms,
         )
     )
+    pixiv.env_config = {
+        "cookie": settings.pixiv_cookie,
+        "proxy": settings.pixiv_proxy or proxy,
+        "dns_proxy": None,
+        "pinned_ip": None,
+        "min_interval_ms": settings.min_interval_ms,
+    }
+
     sources: list[BaseSource] = [hanime1, pixiv]
     if db is not None:
         sources.insert(0, LocalSource(db))

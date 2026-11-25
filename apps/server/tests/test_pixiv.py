@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
+from forager.sources.base import ClueQuery, SourceError
 from forager.sources.pixiv import (
+    MAX_PAGES,
+    PixivSource,
     build_detail,
     clamp_page,
     dedupe_users,
@@ -10,6 +15,7 @@ from forager.sources.pixiv import (
     parse_ranking_items,
     parse_search_items,
     read_cookie,
+    strip_html,
 )
 
 SEARCH_ROW = {
@@ -99,12 +105,95 @@ def test_build_detail_falls_back_to_single_original() -> None:
 
 
 def test_build_detail_without_urls_raises() -> None:
-    import pytest
-
-    from forager.sources.base import SourceError
-
     with pytest.raises(SourceError):
         build_detail("pixiv", "1", {"illustTitle": "x", "urls": {}}, [])
+
+
+def test_build_detail_keeps_page_metadata() -> None:
+    body = {
+        **DETAIL_BODY,
+        "illustComment": "line1<br>line2 &amp; <b>more</b>",
+        "createDate": "2026-11-01T12:00:00+09:00",
+        "viewCount": 1234,
+        "userId": "42",
+    }
+    detail = build_detail("pixiv", "1", body, PAGES[:1])
+    assert detail["description"] == "line1\nline2 & more"
+    assert detail["uploadDate"] == "2026-11-01T12:00:00+09:00"
+    assert (detail["views"], detail["userId"]) == (1234, "42")
+    assert "description" not in build_detail("pixiv", "1", DETAIL_BODY, PAGES[:1])
+
+
+def test_strip_html() -> None:
+    assert strip_html(None) == ""
+    assert strip_html("<a href='x'>A&lt;B</a>") == "A<B"
+
+
+# ---- 线索能力 ----
+
+
+def test_validate_clue_matrix() -> None:
+    source = PixivSource(client=None)
+    source.validate_clue(ClueQuery(keyword="miku"), 0)
+    source.validate_clue(ClueQuery(category="daily"), 1)
+    source.validate_clue(ClueQuery(uploader="123"), 0)
+    source.validate_clue(ClueQuery(kind="favorites"), 1)
+    with pytest.raises(SourceError, match="只能填一项"):
+        source.validate_clue(ClueQuery(category="daily", keyword="miku"), 1)
+    with pytest.raises(SourceError, match="排行榜不支持"):
+        source.validate_clue(ClueQuery(category="weekly"), 0)
+
+
+async def test_discover_dispatches_to_the_matching_endpoint(monkeypatch) -> None:
+    source = PixivSource(client=None)
+    seen: list[tuple] = []
+
+    async def search(kw, page=1):
+        seen.append(("search", kw, page))
+        return {"items": [], "page": page, "hasMore": False}
+
+    async def partition(value, page=1):
+        seen.append(("partition", value, page))
+        return {"items": [], "page": page, "hasMore": False}
+
+    async def uploader(value, page=1):
+        seen.append(("uploader", value, page))
+        return {"items": [], "page": page, "hasMore": False}
+
+    async def listing(page=1, category=None):
+        seen.append(("list", category, page))
+        return {"items": [], "page": page, "hasMore": False}
+
+    monkeypatch.setattr(source, "search", search)
+    monkeypatch.setattr(source, "partition_items", partition)
+    monkeypatch.setattr(source, "uploader_items", uploader)
+    monkeypatch.setattr(source, "list", listing)
+
+    await source.discover(ClueQuery(keyword="miku"), 2)
+    await source.discover(ClueQuery(category="daily"))
+    await source.discover(ClueQuery(uploader="123"))
+    await source.discover(ClueQuery())
+    assert seen == [
+        ("search", "miku", 2),
+        ("partition", "daily", 1),
+        ("uploader", "123", 1),
+        ("list", None, 1),
+    ]
+
+
+async def test_uploader_items_past_cap_is_an_empty_page(monkeypatch) -> None:
+    """翻到顶要给「全部」一个干净的终点，而不是抛 404 把线索标成 error。"""
+    source = PixivSource(client=None)
+
+    async def never(uid, page):
+        raise AssertionError("到顶之后不该再请求")
+
+    monkeypatch.setattr(source, "_user_illust_ids", never)
+    assert await source.uploader_items("123", MAX_PAGES + 1) == {
+        "items": [],
+        "page": MAX_PAGES + 1,
+        "hasMore": False,
+    }
 
 
 def test_read_cookie() -> None:

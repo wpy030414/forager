@@ -43,12 +43,13 @@ class Settings:
     html_cache_ttl_ms: int
     download_concurrency: int
     sub_tick_sec: int
-    sub_initial: int
     # pixiv 上游
     pixiv_proxy: str | None = None
     pixiv_cookie: str | None = None
     # 凭据加密密钥（Fernet，urlsafe base64）；缺省时自动生成并落盘
     secret_key: str | None = None
+    # 全局出口代理：各源未单独配置时使用（compose 部署默认指向 mihomo）
+    proxy: str | None = None
 
 
 def load_settings() -> Settings:
@@ -71,6 +72,6 @@ def load_settings() -> Settings:
         html_cache_ttl_ms=int(_env("FORAGER_CACHE_TTL_MS", default="60000") or 60000),
         download_concurrency=int(_env("FORAGER_DOWNLOAD_CONCURRENCY", default="1") or 1),
         sub_tick_sec=int(_env("FORAGER_SUB_TICK", default="30") or 30),
-        sub_initial=int(_env("FORAGER_SUB_INITIAL", default="3") or 3),
         secret_key=_env("FORAGER_SECRET_KEY"),
+        proxy=_env("FORAGER_PROXY"),
     )

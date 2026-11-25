@@ -26,7 +26,7 @@ def test_business_routes_require_login(tmp_path) -> None:
         for path in (
             "/api/sources",
             "/api/library/items",
-            "/api/tree",
+            "/api/fetchers",
             "/api/settings/sources",
         ):
             res = client.get(path)

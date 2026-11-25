@@ -1,0 +1,58 @@
+# forager 专用 mihomo（Clash Meta）配置模板：订阅节点 + 分流规则。
+#
+# 订阅地址不写在这里：由 .env 的 CLASH_SUBSCRIBE_URL 在容器启动时替换
+# 下面的 __SUBSCRIBE_URL__（见 docker/mihomo-entrypoint.sh）。
+# 改动本文件后执行 `docker compose up -d mihomo` 重建容器才会生效。
+
+mixed-port: 7890          # HTTP 与 SOCKS5 共用一个端口；forager 只用这一个出口
+allow-lan: true           # forager 是另一个容器，从 mihomo 看属于「局域网」设备
+bind-address: "*"
+mode: rule
+log-level: warning
+ipv6: false
+ip-version: ipv4-prefer
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  default-nameserver:    # 必须是纯 IP：用来解析下面这些 DoH 自己的域名
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  # hanime1 在本地 DNS 与部分国内 DoH 上会被污染：定向到境外 DoH
+  nameserver-policy:
+    "+.hanime1.me":
+      - https://1.1.1.1/dns-query
+      - https://dns.google/dns-query
+    "+.hembed.com":
+      - https://1.1.1.1/dns-query
+      - https://dns.google/dns-query
+  proxy-server-nameserver:   # 只用来解析订阅节点自己的域名
+    - https://doh.pub/dns-query
+
+proxy-providers:
+  airport:
+    type: http
+    url: "__SUBSCRIBE_URL__"   # clash YAML、ss:// vmess:// trojan:// 链接列表或其 base64 均可
+    path: ./proxy_providers/airport.yaml
+    interval: 3600
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - airport
+
+rules:
+  # 源站默认直连：经机场节点访问 hanime1 会被 Cloudflare 挑战（docs/DECISIONS.md ADR-8），
+  # 解析交给上面的 DoH。所在网络连 hanime1 也必须走节点时，删掉下面两行即可。
+  - DOMAIN-SUFFIX,hanime1.me,DIRECT
+  - DOMAIN-SUFFIX,hembed.com,DIRECT
+  - MATCH,PROXY

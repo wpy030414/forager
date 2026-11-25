@@ -3,6 +3,7 @@
 node_modules
 **/node_modules
 data
+clash
 **/dist
 apps/server/.venv
 **/__pycache__

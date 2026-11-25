@@ -2,10 +2,14 @@
 
 每个源实现 list / search / detail 三个方法，归一化为下列结构后经 /api 暴露；
 前端只消费归一化结果，不感知源站差异。
+
+线索发现走 discover()：按 ClueQuery（分区 / 关键词 / 发布者）取一页可下载的最小单元，
+发现与浏览共用同一个出口，只是发现会记状态、浏览不记。
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
@@ -21,6 +25,19 @@ class SourceError(Exception):
         self.status = status
 
 
+@dataclass(frozen=True)
+class ClueQuery:
+    """线索的发现参数。分区与关键词可以叠加（源站支持时为 AND）。"""
+
+    #: search = 按筛选条件列作品；favorites / following = 展开成发布者子线索
+    kind: str = "search"
+    #: 分区（hanime1 的 genre / Pixiv 的排行榜）
+    category: str | None = None
+    keyword: str | None = None
+    #: 发布者 / 画师，仅支持该能力的源
+    uploader: str | None = None
+
+
 class BaseSource:
     """所有源的基类。子类只关心「怎么解析」，传输与频控由 client 统一负责。"""
 
@@ -30,18 +47,26 @@ class BaseSource:
     image_hosts: ClassVar[tuple[str, ...]] = ()
     #: 可在 Web 设置页调整的字段（见 source_config.FIELD_META）
     config_fields: ClassVar[tuple[str, ...]] = ()
-    #: 线索支持的发现类型
-    kinds: ClassVar[tuple[str, ...]] = ("query",)
+    #: 线索支持的类型：search | favorites | following
+    kinds: ClassVar[tuple[str, ...]] = ("search",)
+    #: 新建线索时表单露出的筛选项：category | keyword | uploader
+    discover_fields: ClassVar[tuple[str, ...]] = ("category", "keyword")
     #: 可选清晰度（空表示不限制）
     quality_options: ClassVar[tuple[str, ...]] = ()
     #: 是否支持扫码登录（设置页据此显示按钮）
     supports_qrcode: ClassVar[bool] = False
 
-    def __init__(self, client: UpstreamClient) -> None:
+    def __init__(self, client) -> None:
         self.client = client
+        #: 来自环境变量的默认配置（设置页未保存时生效），由 create_sources 填入
+        self.env_config: dict[str, Any] = {}
 
     def apply_config(self, config: dict[str, Any]) -> None:
-        """把设置页保存的配置热应用到 client，无需重启容器。"""
+        """把设置页保存的配置热应用到 client，无需重启容器。
+
+        传入的应当是「环境变量默认值 + 设置页保存值」合并后的完整配置：
+        某字段被清空时这里会收到它的默认值，而不是保持旧值。
+        """
         if "cookie" in config:
             self.client.cookie = config["cookie"] or None
         if "proxy" in config:
@@ -68,24 +93,39 @@ class BaseSource:
     async def detail(self, vid: str) -> dict[str, Any]:
         raise NotImplementedError
 
-    # ---- 线索用的发现能力（按源可选实现）----
+    # ---- 线索用的发现能力（按源可选覆写）----
 
-    async def browse(self, kind: str, value: str, page: int = 1) -> dict[str, Any]:
-        """按线索类型浏览在线内容。
+    async def discover(self, query: ClueQuery, page: int = 1) -> dict[str, Any]:
+        """按线索参数取一页可下载的最小单元。
 
-        与定时发现分开：browse 面向用户浏览（如番剧按季度展示），
-        partition_items 面向持续发现（直接产出可下载的最小单元）。
+        返回 {items, page, hasMore}；items 为空即到列表末尾。
+        源站若把页号夹回上限（返回的 page 小于请求值），调用方视为到底。
         """
-        if kind == "query":
-            return await self.search(value, page)
-        if kind == "partition":
-            return await self.partition_items(value, page)
-        if kind == "uploader":
-            return await self.uploader_items(value, page)
-        raise SourceError("该线索类型不支持浏览", 400)
+        if query.uploader:
+            return await self.uploader_items(query.uploader, page)
+        if query.keyword:
+            return await self.search(query.keyword, page)
+        if query.category:
+            return await self.partition_items(query.category, page)
+        return await self.list(page)
+
+    def validate_clue(self, query: ClueQuery, pages: int) -> None:
+        """新建线索前的能力校验：不支持就抛 SourceError(…, 400)。"""
+        if query.kind not in self.kinds:
+            raise SourceError(f"{self.name} 不支持线索类型：{query.kind}", 400)
+        if query.kind != "search":
+            return
+        labels = {"category": "分区", "keyword": "关键词", "uploader": "发布者"}
+        unsupported = [
+            labels[field]
+            for field in ("category", "keyword", "uploader")
+            if getattr(query, field) and field not in self.discover_fields
+        ]
+        if unsupported:
+            raise SourceError(f"{self.name} 不支持按{'、'.join(unsupported)}发现", 400)
 
     def categories(self) -> list[dict[str, str]]:
-        """源站分区列表：id 用于订阅，name 用于展示。"""
+        """源站分区列表：id 用于线索，name 用于展示。"""
         return []
 
     async def partition_items(self, value: str, page: int = 1) -> dict[str, Any]:

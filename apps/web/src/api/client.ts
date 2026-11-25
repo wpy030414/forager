@@ -1,6 +1,7 @@
 import type {
   ContinueItem,
   DownloadJob,
+  DownloadStatus,
   LibraryItem,
   Page,
   PlaybackResolve,
@@ -69,39 +70,73 @@ export interface TestResult {
   message: string
 }
 
-export interface TreeNode {
+/** 触发时机：manual 只认「立即运行」，其余按距上次运行的间隔判定 */
+export type Trigger = 'manual' | '1h' | '1d' | '1w' | '1m'
+
+export interface ClueStats {
+  discovered: number
+  done: number
+  pending: number
+  /** 补投次数耗尽、仍未入库 */
+  failed: number
+}
+
+/** 线索：一条发现规则（来源 + 分区 / 关键词 / 画师 + 数量） */
+export interface Clue {
   id: number
-  parentId: number | null
+  fetcherId: number
+  /** 由「我的收藏 / 我的关注」展开派生，不单独可删 */
+  derived: boolean
   source: string
   kind: string
-  value: string
+  partition: string
+  keyword: string
+  uploader: string
+  /** 每轮取前 N 页；0 = 全部 */
+  pages: number
   title: string
-  intervalSec: number
+  lastRunAt: string | null
+  status: string
+  lastError: string | null
+  stats: ClueStats
+}
+
+/** 采集器：若干线索的并集 + 触发时机 */
+export interface Fetcher {
+  id: number
+  name: string
+  trigger: Trigger
   quality: string
   enabled: boolean
   lastRunAt: string | null
   status: string
   lastError: string | null
-  discovered: number
-  done: number
-  pending: number
-  total?: { discovered: number; done: number }
-  children: TreeNode[]
+  stats: ClueStats
+  clues: Clue[]
 }
 
-export interface TreeGroup {
-  source: string
+/** 可建线索的源：声明自己露出哪些筛选项与分区 */
+export interface ClueSource {
+  id: string
   name: string
   kinds: string[]
+  fields: string[]
   categories: Array<{ id: string; name: string }>
   qualityOptions: string[]
-  nodes: TreeNode[]
-  total: { discovered: number; done: number }
 }
 
-export interface TreeResponse {
-  sources: TreeGroup[]
-  total: { discovered: number; done: number }
+export interface FetchersResponse {
+  fetchers: Fetcher[]
+  total: ClueStats
+  triggers: Array<{ value: Trigger; label: string }>
+  pageOptions: Array<{ value: number; label: string }>
+  sources: ClueSource[]
+}
+
+export interface DownloadsSnapshot {
+  /** 进行中 + 最近结束的若干条（服务端已裁剪） */
+  jobs: DownloadJob[]
+  counts: Record<DownloadStatus, number>
 }
 
 export interface Facets {
@@ -181,7 +216,14 @@ export const api = {
     ),
   download: (source: string, id: string, quality?: string) =>
     send<DownloadJob>('/api/library/downloads', 'POST', { source, id, quality }),
-  downloads: () => get<DownloadJob[]>('/api/library/downloads'),
+  /** keys 用来精确查询当前浏览页那几张卡的任务（列表默认被裁剪） */
+  downloads: (params: { limit?: number; keys?: string[] } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.limit) qs.set('limit', String(params.limit))
+    if (params.keys?.length) qs.set('keys', params.keys.join(','))
+    const suffix = qs.toString()
+    return get<DownloadsSnapshot>(`/api/library/downloads${suffix ? `?${suffix}` : ''}`)
+  },
   cancelDownload: (key: string) => send<{ ok: true }>(`/api/library/downloads/${key}`, 'DELETE'),
   deleteItem: (key: string) => send<{ ok: true }>(`/api/library/items/${key}`, 'DELETE'),
 
@@ -201,21 +243,27 @@ export const api = {
   },
   facets: () => get<Facets>('/api/library/facets'),
 
-  // ---- 线索 ----
-  tree: () => get<TreeResponse>('/api/tree'),
-  browseNode: (id: number, page = 1) =>
-    get<Page<VideoSummary>>(`/api/tree/nodes/${id}/items?page=${page}`),
-  createNode: (body: {
+  // ---- 线索：采集器 = 线索并集 + 触发时机 ----
+  fetchers: () => get<FetchersResponse>('/api/fetchers'),
+  createFetcher: (body: { name: string; trigger: Trigger; quality?: string }) =>
+    send<Fetcher>('/api/fetchers', 'POST', body),
+  deleteFetcher: (id: number) => send<{ ok: true }>(`/api/fetchers/${id}`, 'DELETE'),
+  /** 立即运行：立刻返回，采集器在后台跑 */
+  runFetcher: (id: number) =>
+    send<{ ok: true; started: boolean }>(`/api/fetchers/${id}/run`, 'POST'),
+  createClue: (body: {
+    fetcherId: number
     source: string
-    kind: string
-    value: string
-    intervalSec: number
-    quality?: string
-    title?: string
-  }) => send<TreeNode>('/api/tree/nodes', 'POST', body),
-  deleteNode: (id: number) => send<{ ok: true }>(`/api/tree/nodes/${id}`, 'DELETE'),
-  syncNode: (id: number) =>
-    send<{ ok: true; enqueued: number }>(`/api/tree/nodes/${id}/sync`, 'POST'),
+    kind?: string
+    partition?: string
+    keyword?: string
+    uploader?: string
+    pages: number
+  }) => send<Clue>('/api/clues', 'POST', body),
+  deleteClue: (id: number) => send<{ ok: true }>(`/api/clues/${id}`, 'DELETE'),
+  /** 只浏览该线索对应的在线内容，不记录、不下载 */
+  clueItems: (id: number, page = 1) =>
+    get<Page<VideoSummary>>(`/api/clues/${id}/items?page=${page}`),
 
   // ---- 上游扫码登录 ----
   qrcode: (source: string) => get<QrCode>(`/api/auth/${source}/qrcode`),

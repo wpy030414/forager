@@ -4,7 +4,7 @@ import { setFocus } from '@noriginmedia/norigin-spatial-navigation'
 import { ChevronRight, Compass, Plus } from 'lucide-react'
 import { api } from '@/api/client'
 import { useShelfScroll } from '@/lib/useShelfScroll'
-import type { Facets, TreeGroup, TreeResponse } from '@/api/client'
+import type { Fetcher, Facets } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
 import { WideCard } from '@/components/WideCard'
 
@@ -62,7 +62,7 @@ export function HomePage({
   const [recent, setRecent] = useState<VideoSummary[]>([])
   const [sources, setSources] = useState<Array<{ id: string; name: string }>>([])
   const [facets, setFacets] = useState<Facets>()
-  const [tree, setTree] = useState<TreeResponse>()
+  const [fetchers, setFetchers] = useState<Fetcher[]>([])
   const [error, setError] = useState<string>()
   const { ref: continueRef, scrollToChild: continueScroll } = useShelfScroll<HTMLDivElement>()
   const { ref: recentRef, scrollToChild: recentScroll } = useShelfScroll<HTMLDivElement>()
@@ -74,15 +74,15 @@ export function HomePage({
       api.list('local', 1),
       api.listSources(),
       api.facets(),
-      api.tree(),
+      api.fetchers(),
     ])
-      .then(([continues, latest, sourceList, facetData, treeData]) => {
+      .then(([continues, latest, sourceList, facetData, clueData]) => {
         if (!alive) return
         setCont(continues)
         setRecent(latest.items.slice(0, 12))
         setSources(sourceList)
         setFacets(facetData)
-        setTree(treeData)
+        setFetchers(clueData.fetchers)
         setError(undefined)
       })
       .catch((e) => {
@@ -182,8 +182,6 @@ export function HomePage({
     return () => clearTimeout(id)
   }, [cont.length, recent.length, platforms])
 
-  const clueGroups = (tree?.sources ?? []).filter((group) => group.nodes.length > 0)
-
   return (
     <div className="relative min-h-screen">
       <div className="space-y-10 px-12 pb-28 pt-24">
@@ -233,11 +231,11 @@ export function HomePage({
 
         <section className="animate-fade-up [animation-delay:160ms]">
           <div className="shelf-scroll flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {clueGroups.length === 0 ? (
+            {fetchers.length === 0 ? (
               <ClueCreateCard onSelect={onOpenClues} />
             ) : (
-              clueGroups.map((group) => (
-                <ClueSummary key={group.source} group={group} onSelect={onOpenClues} />
+              fetchers.map((fetcher) => (
+                <ClueSummary key={fetcher.id} fetcher={fetcher} onSelect={onOpenClues} />
               ))
             )}
           </div>
@@ -368,22 +366,22 @@ function PlatformCard({
   )
 }
 
-function ClueSummary({ group, onSelect }: { group: TreeGroup; onSelect: () => void }) {
-  const total = group.total.discovered
-  const done = group.total.done
+function ClueSummary({ fetcher, onSelect }: { fetcher: Fetcher; onSelect: () => void }) {
+  const total = fetcher.stats.discovered
+  const done = fetcher.stats.done
   const pct = total ? Math.round((done / total) * 100) : 0
 
   return (
-    <Focusable focusKey={`HOME-CLUE-${group.source}`} onEnter={onSelect} className="shrink-0">
+    <Focusable focusKey={`HOME-FETCHER-${fetcher.id}`} onEnter={onSelect} className="shrink-0">
       <div className="flex w-[22rem] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/25 p-4 backdrop-blur-sm">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white">
             <Compass className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-white">{group.name}</p>
+            <p className="truncate text-sm font-semibold text-white">{fetcher.name}</p>
             <p className="mt-0.5 text-[11px] text-white/45">
-              {group.nodes.length} 条线索 · {done}/{total}
+              {fetcher.clues.length} 条线索 · {done}/{total}
             </p>
           </div>
         </div>
