@@ -145,6 +145,15 @@ export interface Facets {
   total: number
 }
 
+export interface Wallpaper {
+  /** 文件名（不含扩展名） */
+  slug: string
+  /** 同源地址：图片已在服务端本地库里 */
+  url: string
+  /** 0 = 服务端还没下载好 */
+  weight: number
+}
+
 export interface QrCode {
   key: string
   url: string
@@ -183,6 +192,9 @@ export const api = {
     send<{ ok: boolean }>('/api/session/recover', 'POST', { recoveryCode, nextPassword }),
 
   listSources: () => get<Array<{ id: string; name: string }>>('/api/sources'),
+
+  /** 首页背景：服务端首次运行时从 Unsplash 拉进本地库，这里只取就绪清单 */
+  wallpapers: () => get<Wallpaper[]>('/api/wallpapers/index'),
 
   sourceCategories: (source: string) =>
     get<Array<{ id: string; name: string }>>(`/api/sources/${source}/categories`),

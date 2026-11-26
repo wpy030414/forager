@@ -1,6 +1,6 @@
 import type { DownloadJob, VideoDetail, VideoEpisode, VideoSummary } from '@libre-tv/shared/types'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { doesFocusableExist, getCurrentFocusKey, setFocus } from '@noriginmedia/norigin-spatial-navigation'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getCurrentFocusKey } from '@noriginmedia/norigin-spatial-navigation'
 import { ChevronDown, ChevronRight, Download, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { api, fmtBytes, fmtDuration } from '@/api/client'
 import type {
@@ -15,6 +15,7 @@ import { Focusable } from '@/components/Focusable'
 import { Overlay } from '@/components/ui/Overlay'
 import { PosterCard } from '@/components/PosterCard'
 import { cn } from '@/lib/utils'
+import { focus, focusOrFallback, observeFocus, restoreFocus, setPageLanding } from '@/lib/focus'
 
 const EXPAND_OPTIONS = [
   { value: '', label: '无' },
@@ -34,15 +35,6 @@ const clueKey = (id: number) => `CLUE-${id}`
 const pagesLabel = (pages: number) => (pages === 0 ? '全部' : `前 ${pages} 页`)
 const triggerLabel = (trigger: Trigger) => (trigger === 'manual' ? '手动' : trigger.toUpperCase())
 
-/** 等列表刷新、新的焦点目标注册好之后再把焦点交过去；目标已不在就退回返回键 */
-function refocus(key: string) {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      void setFocus(doesFocusableExist(key) ? key : 'TOP-BACK').catch(() => {})
-    })
-  })
-}
-
 /**
  * 线索：线索 = 一条发现规则，采集器 = 若干线索的并集 + 触发时机。
  * 左栏是采集器及其线索，右侧浏览选中线索对应的在线内容；点视频按最高清晰度入库，
@@ -60,6 +52,8 @@ export function TreePage() {
   const [browseError, setBrowseError] = useState<string>()
 
   const [picker, setPicker] = useState<VideoDetail>()
+  // 进门先落在「新建采集器」（数据无关、立刻注册），方向键一按就有反应
+  useEffect(() => setPageLanding('tree', 'FETCHER-CREATE'), [])
   const [snapshot, setSnapshot] = useState<DownloadsSnapshot>(EMPTY_SNAPSHOT)
   const [visibleJobs, setVisibleJobs] = useState<DownloadJob[]>([])
   const [libraryKeys, setLibraryKeys] = useState<Set<string>>(new Set())
@@ -129,13 +123,23 @@ export function TreePage() {
     [snapshot, visibleJobs],
   )
 
-  // 轮询会增删获焦的行（删除、任务结束、列表裁剪）：焦点一旦落空，方向键就全死了，退回返回键
+  // 轮询会增删获焦的行（删除、任务结束、列表裁剪）：焦点一旦落空，方向键就全死了，
+  // 交给 Focus Manager 退到同位置的替补（没有就上一站 / 返回键）
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
-      if (!getCurrentFocusKey()) void setFocus('TOP-BACK').catch(() => {})
+      if (!getCurrentFocusKey()) void restoreFocus()
     })
     return () => cancelAnimationFrame(raf)
   }, [data, snapshot, visibleJobs])
+
+  // 弹层打开时页面整体失焦；关闭后把焦点还给打它开的那张卡
+  const opener = useRef('')
+  const pickerOpened = useRef(false)
+  useEffect(() => {
+    return observeFocus((key) => {
+      if (!pickerOpened.current) opener.current = key
+    })
+  }, [])
 
   const loadBrowse = useCallback(async (clue: Clue, page = 1) => {
     setBrowseBusy(true)
@@ -207,7 +211,7 @@ export function TreePage() {
     } finally {
       setBusyId(null)
     }
-    refocus(target)
+    requestAnimationFrame(() => void focusOrFallback(target, 'TOP-BACK'))
   }
 
   const removeClue = async (clue: Clue) => {
@@ -225,7 +229,7 @@ export function TreePage() {
     } finally {
       setBusyId(null)
     }
-    refocus(target)
+    requestAnimationFrame(() => void focusOrFallback(target, 'TOP-BACK'))
   }
 
   const openOnline = async (video: VideoSummary) => {
@@ -239,6 +243,7 @@ export function TreePage() {
         episodes.length > 0 &&
         (video.kind === 'series' || (!video.id.startsWith('ep') && episodes.length > 1))
       if (expandable) {
+        pickerOpened.current = true
         setPicker(detail)
         return
       }
@@ -291,9 +296,10 @@ export function TreePage() {
 
   const closePicker = () => setPicker(undefined)
 
-  // 弹层退场动画结束后再把焦点还给选中的线索；线索已删则退回返回键
+  // 弹层退场动画结束后再把焦点还给打开它的那张卡；那张卡已不在（列表刷新）则退到选中的线索
   const restoreClueFocus = () => {
-    refocus(selectedId === null ? 'TOP-BACK' : clueKey(selectedId))
+    pickerOpened.current = false
+    void focusOrFallback(opener.current, selectedId === null ? 'TOP-BACK' : clueKey(selectedId))
   }
 
   const total = data?.total ?? ZERO
@@ -301,8 +307,7 @@ export function TreePage() {
     () => Array.from(new Set((data?.sources ?? []).flatMap((source) => source.qualityOptions))),
     [data],
   )
-  const sourceName = (id: string) =>
-    data?.sources.find((source) => source.id === id)?.name ?? id
+  const sourceName = (id: string) => data?.sources.find((source) => source.id === id)?.name ?? id
 
   return (
     <div className="space-y-6 px-8 pb-24 pt-28 xl:px-12">
@@ -436,7 +441,11 @@ function FetcherForm({
           </select>
         </Field>
         <Field label="清晰度">
-          <select value={quality} onChange={(e) => setQuality(e.target.value)} className={inputClass}>
+          <select
+            value={quality}
+            onChange={(e) => setQuality(e.target.value)}
+            className={inputClass}
+          >
             <option value="">跟随默认</option>
             {qualityOptions.map((option) => (
               <option key={option} value={option}>
@@ -447,7 +456,13 @@ function FetcherForm({
         </Field>
       </div>
 
-      <FormFooter error={error} busy={busy} label="创建采集器" onSubmit={submit} />
+      <FormFooter
+        focusKey="FETCHER-CREATE"
+        error={error}
+        busy={busy}
+        label="创建采集器"
+        onSubmit={submit}
+      />
     </section>
   )
 }
@@ -549,7 +564,11 @@ function ClueForm({ data, onCreated }: { data: FetchersResponse; onCreated: () =
         </Field>
 
         <Field label="来源">
-          <select value={source?.id ?? ''} onChange={(e) => pickSource(e.target.value)} className={inputClass}>
+          <select
+            value={source?.id ?? ''}
+            onChange={(e) => pickSource(e.target.value)}
+            className={inputClass}
+          >
             {sources.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -654,17 +673,19 @@ function FormFooter({
   label,
   accent = false,
   onSubmit,
+  focusKey,
 }: {
   error?: string
   busy: boolean
   label: string
   accent?: boolean
   onSubmit: () => void
+  focusKey?: string
 }) {
   return (
     <div className="mt-4 flex items-center justify-between">
       <span className="text-xs text-amber-300">{error ?? ''}</span>
-      <Focusable scale="sm" onEnter={busy ? undefined : onSubmit}>
+      <Focusable focusKey={focusKey} scale="sm" onEnter={busy ? undefined : onSubmit}>
         <span
           className={cn(
             'flex items-center gap-2 rounded-full px-5 py-2 text-xs font-semibold',
@@ -710,7 +731,11 @@ function FetcherCard({
 
   return (
     <section className="rounded-3xl bg-white/[0.04] p-4 ring-1 ring-white/10">
-      <Focusable focusKey={fetcherKey(fetcher.id)} scale="sm" onEnter={() => setOpen((value) => !value)}>
+      <Focusable
+        focusKey={fetcherKey(fetcher.id)}
+        scale="sm"
+        onEnter={() => setOpen((value) => !value)}
+      >
         <div className="rounded-2xl">
           <div className="flex items-center gap-2">
             {open ? (
@@ -804,7 +829,9 @@ function ClueRow({
         >
           <div className="flex items-center gap-2">
             <StatusDot status={clue.status} />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{clue.title}</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+              {clue.title}
+            </span>
             <Chip>{sourceName}</Chip>
           </div>
           <div className="mt-1.5 flex items-center gap-2">
@@ -994,13 +1021,21 @@ function DownloadPanel({
                 <StatusChip job={job} />
 
                 {job.status === 'error' ? (
-                  <Focusable focusKey={`JOB-${job.key}-RETRY`} scale="sm" onEnter={() => onRetry(job)}>
+                  <Focusable
+                    focusKey={`JOB-${job.key}-RETRY`}
+                    scale="sm"
+                    onEnter={() => onRetry(job)}
+                  >
                     <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white">
                       重试
                     </span>
                   </Focusable>
                 ) : job.status === 'queued' || job.status === 'downloading' ? (
-                  <Focusable focusKey={`JOB-${job.key}-CANCEL`} scale="sm" onEnter={() => onCancel(job)}>
+                  <Focusable
+                    focusKey={`JOB-${job.key}-CANCEL`}
+                    scale="sm"
+                    onEnter={() => onCancel(job)}
+                  >
                     <span className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-zinc-400">
                       取消
                     </span>
@@ -1069,12 +1104,7 @@ function EpisodePicker({
   }
 
   return (
-    <Overlay
-      open
-      onClose={onClose}
-      onEntered={() => void setFocus('PICKER-ALL').catch(() => {})}
-      onExited={onExited}
-    >
+    <Overlay open onClose={onClose} onEntered={() => void focus('PICKER-ALL')} onExited={onExited}>
       <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
         <div className="min-w-0">
           <h2 className="truncate text-lg font-semibold text-white">{detail.title}</h2>
@@ -1213,7 +1243,13 @@ function StatusChip({ job }: { job: DownloadJob }) {
   )
 }
 
-function Chip({ children, tone = 'plain' }: { children: React.ReactNode; tone?: 'plain' | 'emerald' }) {
+function Chip({
+  children,
+  tone = 'plain',
+}: {
+  children: React.ReactNode
+  tone?: 'plain' | 'emerald'
+}) {
   return (
     <span
       className={cn(

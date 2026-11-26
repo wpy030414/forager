@@ -1,12 +1,14 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusable } from '@noriginmedia/norigin-spatial-navigation'
 import { cn } from '@/lib/utils'
-
-/**
- * 焦点上下文：转场中退场的旧页需要整体失焦，否则它卸载时 norigin 会把焦点
- * 自动还给父节点，把入场页刚设好的焦点抢走。
- */
-export const FocusActiveContext = createContext(true)
+import {
+  FocusActiveContext,
+  notifyBlur,
+  notifyFocus,
+  pageOfFocus,
+  scopeKey,
+  scrollShelfTo,
+} from '@/lib/focus'
 
 type Dir = 'up' | 'down' | 'left' | 'right'
 
@@ -18,11 +20,11 @@ type Dir = 'up' | 'down' | 'left' | 'right'
  */
 let pendingDir: { dir: Dir; from: symbol } | null = null
 
-/** 每个 Focusable 实例的身份标记 */
-function useIdentity(): symbol {
-  const id = useRef<symbol>(Symbol('focusable'))
-  return id.current
-}
+/**
+ * 每次挂载生成唯一实例 key。norigin 的注册 effect 只跑一次、以 key 为准；
+ * React 复用实例时若沿用旧 key，注册表里留下的还是旧节点，setFocus 会静默落空。
+ */
+let seq = 0
 
 /** 倾斜角：左右键给出 ±tiltMax 的 rotateY，上下键回正 */
 function tiltFor(dir: 'up' | 'down' | 'left' | 'right' | null, max: number): number {
@@ -37,18 +39,22 @@ function tiltFor(dir: 'up' | 'down' | 'left' | 'right' | null, max: number): num
  * `[data-layer="img"|"text"]` 子元素下发位移，形成三层视差。
  *
  * 焦点态由空间导航驱动，鼠标悬停只做视觉补充（电视上鼠标不参与）。
+ * 获焦时的货架滚动、焦点记忆与恢复由 Focus Manager（lib/focus.ts）统一处理，
+ * 这里只上报「谁拿到了焦点」。鼠标进入会把空间焦点一并移过来，
+ * 保证「最后一个动过的元素」始终是焦点——遥控器接手时不会从别处跳。
  */
 interface FocusableProps {
   children: ReactNode
   className?: string
   /** 遥控器确认键 / Enter */
   onEnter?: () => void
-  /** 获焦时回调：首页背景联动、横向列表滚动等 */
+  /** 获焦时回调：首页背景联动等（滚动由 Focus Manager 负责） */
   onFocus?: () => void
   /** 失焦时回调 */
   onBlur?: () => void
-  /** 方向键在获焦组件上按下（自定义移动行为时用） */
-  onArrow?: (dir: 'up' | 'down' | 'left' | 'right') => void
+  /** 方向键在获焦组件上按下（自定义移动行为时用；不处理就交给空间导航） */
+  onArrow?: (dir: Dir) => void
+  /** 语义 key：页面记忆、焦点恢复都按它认人（跨重启也靠它） */
   focusKey?: string
   /** 大卡片用更大放大倍率 */
   scale?: 'sm' | 'md' | 'lg'
@@ -80,14 +86,30 @@ export function Focusable({
   const [hovered, setHovered] = useState(false)
   const [dir, setDir] = useState<number>(0)
   const entered = useRef(false)
-  const id = useIdentity()
+  const [instanceKey] = useState(() => `f${(seq += 1)}`)
+  const id = instanceKey
+  // 没有语义 key（登录页按钮等）时用实例 key 占位：它们只参与方向键 / Tab，不参与页面记忆
+  const label = focusKey ?? instanceKey
 
-  const { ref, focused } = useFocusable({
-    focusKey,
+  const { ref, focused, focusSelf } = useFocusable({
+    focusKey: instanceKey,
     focusable: active,
     onEnterPress: onEnter ? () => onEnter() : undefined,
-    onFocus: () => onFocus?.(),
-    onBlur: () => onBlur?.(),
+    onFocus: () => {
+      notifyFocus(label, instanceKey)
+      if (focusKey) {
+        const page = pageOfFocus(focusKey)
+        if (page) scopeKey(page, focusKey)
+      }
+      const el = ref.current as HTMLElement | null
+      const shelf = el?.closest<HTMLElement>('[data-shelf-scroll]')
+      if (el && shelf) scrollShelfTo(el, shelf)
+      onFocus?.()
+    },
+    onBlur: () => {
+      notifyBlur(label)
+      onBlur?.()
+    },
     onArrowPress: (next) => {
       const d = next as Dir
       // 记下「谁按的、按向哪」，由接棒的那张卡在获焦时消费
@@ -123,9 +145,15 @@ export function Focusable({
     <div
       ref={ref}
       data-focusable
+      data-focus-key={label}
+      data-instance={instanceKey}
       data-focused={hot ? '' : undefined}
       onClick={onEnter}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        setHovered(true)
+        // 鼠标只是「另一种遥控器」：移上去就把空间焦点移过来，触控板/鼠标用户与遥控器用户共享同一焦点
+        if (active && !focused) focusSelf()
+      }}
       onMouseLeave={() => setHovered(false)}
       className={cn(
         'relative cursor-pointer outline-none transition-transform duration-[var(--dur-focus)] ease-spring',

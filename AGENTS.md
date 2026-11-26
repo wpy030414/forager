@@ -29,7 +29,8 @@ forager 是自托管媒体采集与归档服务（Python 后端 + tvOS 风格 SP
   `sources/local.py`（本地源）、`transport/`（curl + DoH）、`sources/`（在线适配器）、
   `library/`（下载、缓存、元信息副产物 sidecar）、`clues/`（采集器调度与作品台账）、`api/`（路由）
 - `apps/server/tests/` — pytest
-- `apps/web/src/` — React SPA（首页 / 源 / 线索 / 设置，空间导航、tvOS 视觉）
+- `apps/web/src/` — React SPA（首页 / 源 / 线索 / 设置，空间导航、tvOS 视觉）；
+  焦点一律经 `lib/focus.ts`（Focus Manager）与 `components/Focusable.tsx`，组件内不直接调 norigin 或 `scrollIntoView`
 - `packages/shared/src/` — 前端共享类型（历史命名，仍为 `@libre-tv/shared`）
 - `docs/` — ARCHITECTURE / DECISIONS / PORT-NOTES / legacy（历史设计）
 - `clash/` / `docker/mihomo-entrypoint.sh` — mihomo 配置模板与启动渲染

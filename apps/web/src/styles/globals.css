@@ -282,6 +282,18 @@
   overscroll-behavior-x: contain;
 }
 
+/* 遥控器式滚动：货架自己在方向键下滚动，不带动窗口 */
+.shelf-scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 货架两端渐隐：暗示「还有内容」 */
+.shelf-right-fade {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 72px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 72px), transparent);
+}
+
 /* ---------- 兜底 ---------- */
 
 /* 低端机：关掉最费的两个——背景漂移与描边呼吸（由 BackgroundStage 按设备能力设置） */

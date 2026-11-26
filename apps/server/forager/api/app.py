@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from pathlib import Path
@@ -21,7 +22,16 @@ from ..secrets import SecretBox, load_key
 from ..source_config import SourceConfigStore
 from ..sources.base import SourceError
 from ..transport.curl import CurlError
-from . import fetchers, library, session, settings as settings_routes, source_auth, sources
+from ..wallpapers import WallpaperStore, warmup
+from . import (
+    fetchers,
+    library,
+    session,
+    settings as settings_routes,
+    source_auth,
+    sources,
+    wallpapers,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 设置页保存过的配置优先于环境变量：启动时覆盖到各源 client
         app.state.source_config.apply_all(source_map)
         app.state.meta = MetaCache(db)
+        app.state.wallpapers = WallpaperStore(db)
         app.state.images = ImageCache(db.media_dir / ".cover-cache")
         app.state.downloader = Downloader(
             db, source_map, concurrency=settings.download_concurrency, log=log.info
@@ -64,10 +75,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.downloader.on_removed = app.state.scheduler.ledger.mark_removed
         await app.state.downloader.start()
         await app.state.scheduler.start()
+        # 背景图不进仓库：首次启动在后台补拉，失败不影响主体
+        wallpaper_task = asyncio.create_task(
+            warmup(app.state.wallpapers, settings.proxy, log.info), name="forager-wallpaper-warmup"
+        )
         log.info("forager 启动：data=%s 源=%s", db.root, ", ".join(source_map))
         try:
             yield
         finally:
+            wallpaper_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await wallpaper_task
             await app.state.scheduler.stop()
             await app.state.downloader.stop()
             db.close()
@@ -83,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(fetchers.router, dependencies=guard)
     app.include_router(settings_routes.router, dependencies=guard)
     app.include_router(source_auth.router, dependencies=guard)
+    app.include_router(wallpapers.router)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

@@ -1,9 +1,12 @@
 import type { VideoSummary } from '@libre-tv/shared/types'
 import { useCallback, useEffect, useState } from 'react'
+import { doesFocusableExist, getCurrentFocusKey } from '@noriginmedia/norigin-spatial-navigation'
 import { RefreshCw, Search } from 'lucide-react'
 import { api } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
 import { PosterCard } from '@/components/PosterCard'
+import { focus, focusWhenMounted, pageOfFocus, restoreFocus, setPageLanding } from '@/lib/focus'
+import { ShelfRow, useShelfScroll } from '@/lib/useShelfScroll'
 
 /**
  * 源浏览页：本地与在线源共用同一套浏览与播放路径。
@@ -33,6 +36,7 @@ export function SourcePage({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [libraryKeys, setLibraryKeys] = useState<Set<string>>(new Set())
+  const { ref: categoryRef } = useShelfScroll<HTMLDivElement>()
 
   useEffect(() => {
     let alive = true
@@ -87,6 +91,33 @@ export function SourcePage({
     void load(1)
   }, [load])
 
+  // 进门先落在搜索框：列表是空的也能马上操作，数据回来后焦点还在
+  useEffect(() => {
+    setPageLanding(`source/${source}`, 'SRC-SEARCH')
+  }, [source])
+
+  // 页面切换时 App 已经落过点；但本页的落脚点要等这次渲染（带着新 source）跑完才登记，
+  // 所以挂载后补一次：只在焦点落在本页之外时才动，免得覆盖按返回时要还原的那张卡
+  useEffect(() => {
+    const key = `source/${source}`
+    const raf = requestAnimationFrame(() => {
+      const here = pageOfFocus(getCurrentFocusKey() || '')
+      if (here && here !== key) void focusWhenMounted('SRC-SEARCH', 4)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [source])
+
+  // 列表刷新（换分类、搜索、加载更多）后焦点若落空，退到同位置 / 页面落点
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const key = getCurrentFocusKey()
+      if (!key) void restoreFocus()
+      // 空间焦点还在，但列表刷新换掉了 DOM 节点：让集合焦点 / 键盘焦点跟上新节点
+      else void focus(key)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [items, categories])
+
   const applyCategory = (id: string) => {
     setCategory(id)
     setQuery('')
@@ -133,7 +164,14 @@ export function SourcePage({
             onChange={(event) => setKeyword(event.target.value)}
             className="w-56 rounded-full bg-black/40 px-4 py-2 text-sm text-white outline-none ring-1 ring-white/10 transition focus:ring-white/40"
           />
-          <Focusable scale="sm" onEnter={submitSearch}>
+          <Focusable
+            scale="sm"
+            focusKey="SRC-SEARCH"
+            onEnter={() => {
+              submitSearch()
+              void focus(`SRC-${source}-0`)
+            }}
+          >
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white">
               <Search className="h-4 w-4" />
             </span>
@@ -142,7 +180,7 @@ export function SourcePage({
       </div>
 
       {categories.length > 0 ? (
-        <div className="shelf-scroll flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <ShelfRow shelfRef={categoryRef} className="gap-2 pb-1">
           <Chip active={!category && !query} label="全部" onClick={() => applyCategory('')} />
           {categories.map((item) => (
             <Chip
@@ -152,7 +190,7 @@ export function SourcePage({
               onClick={() => applyCategory(item.id)}
             />
           ))}
-        </div>
+        </ShelfRow>
       ) : null}
 
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
@@ -164,7 +202,10 @@ export function SourcePage({
           ))}
         </div>
       ) : items.length === 0 ? null : (
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div
+          data-shelf
+          className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+        >
           {items.map((video, index) => (
             <PosterCard
               key={`${video.source}:${video.id}`}
@@ -180,7 +221,20 @@ export function SourcePage({
 
       {hasMore ? (
         <div className="flex justify-center pt-2">
-          <Focusable scale="sm" onEnter={busy ? undefined : () => void load(page + 1)}>
+          <Focusable
+            scale="sm"
+            onEnter={
+              busy
+                ? undefined
+                : () => {
+                    // 「加载更多」本身常在列表尾部被裁掉：焦点先落到新进来的第一张
+                    const next = `SRC-${source}-${items.length}`
+                    void load(page + 1).then(() => {
+                      if (doesFocusableExist(next)) void focus(next)
+                    })
+                  }
+            }
+          >
             <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-5 py-2 text-xs font-medium text-white">
               <RefreshCw className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`} />
               加载更多
@@ -194,7 +248,7 @@ export function SourcePage({
 
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <Focusable scale="sm" onEnter={onClick}>
+    <Focusable scale="sm" onEnter={onClick} focusKey={`SRC-CHIP-${label}`}>
       <span
         className={[
           'block whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors',

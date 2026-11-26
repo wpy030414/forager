@@ -1,28 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
+import { api } from '@/api/client'
+import { useAuthed } from '@/lib/session'
 import { cn } from '@/lib/utils'
 
 /**
- * Aerial 式背景：6 张全屏静图轮流漂移，约 24s 换一张、1.8s 交叉淡入。
+ * Aerial 式背景：若干张全屏静图轮流漂移，约 24s 换一张、1.8s 交叉淡入。
  *
+ * - 图片不打进仓库：服务端首次运行时把 4K 风景照拉到本地库（/api/wallpapers/index），
+ *   这里只取「已经就绪」的那几张；一张都没有或接口失败就只留深色底，主体照常渲染。
  * - 排程写在 CSS 里：每层一条 72s 的 sweep（前 12s 淡入、第 22.2s 起淡出），
  *   延迟按 --slot × 24s 错开；slot 0 常驻当底，其余层「盖瓦」式接力。
- * - JS 只负责：① 预加载后续图层；② 144s（6 × 24s，最后一层放完）后换 key
- *   重挂，让排程从头再来。
+ * - 背景在独立图层里淡入（图片 decode 完才现身），不占首屏、不挡内容；
+ *   后续图层由浏览器按 CSS 背景惰性下载，这里只提前预解码下一张。
  * - hero / inner 两个档位共用同一个 DOM，只切换暗化与模糊——从首页进内页时
  *   画面是「玻璃慢慢变暗」，而不是换一张底图。
  */
 
-export const WALLPAPERS = [
-  { src: '/wallpapers/01-earth.jpg', credit: 'photo-1451187580459-43490279c0fa' },
-  { src: '/wallpapers/02-nightlake.jpg', credit: 'photo-1519681393784-d120267933ba' },
-  { src: '/wallpapers/03-sea-horizon.jpg', credit: 'photo-1534447677768-be436bb09401' },
-  { src: '/wallpapers/04-forest-mist.jpg', credit: 'photo-1483347756197-71ef80e95f73' },
-  { src: '/wallpapers/05-lake-dawn.jpg', credit: 'photo-1439066615861-d1af74d74000' },
-  { src: '/wallpapers/06-valley.jpg', credit: 'photo-1464822759023-fed622ff2c3b' },
-] as const
+interface Wallpaper {
+  slug: string
+  url: string
+  /** 0 = 服务端还没下载好，不参与排程 */
+  weight: number
+}
 
-/** 一轮排程的时长：6 张 × 24s */
-const CYCLE_MS = WALLPAPERS.length * 24_000
+const SLOT_MS = 24_000
 
 /** 低端设备退化：只留第一张静态图（电视盒子 / 弱核显） */
 function lowPerf(): boolean {
@@ -37,6 +38,10 @@ function lowPerf(): boolean {
 
 export function BackgroundStage({ variant }: { variant: 'hero' | 'inner' }) {
   const [cycle, setCycle] = useState(0)
+  const [ready, setReady] = useState<Wallpaper[]>([])
+  const [firstPainted, setFirstPainted] = useState(false)
+  // 登录前不拉背景：未登录时接口一律 401，拉到只会打一堆无意义的失败请求
+  const authed = useAuthed()
   const [perf] = useState<'full' | 'low'>(() => (lowPerf() ? 'low' : 'full'))
 
   useEffect(() => {
@@ -47,19 +52,57 @@ export function BackgroundStage({ variant }: { variant: 'hero' | 'inner' }) {
     }
   }, [perf])
 
+  // 只问一次就绪清单：首屏不等它（内容先出来），背景晚到就淡进来；
+  // 首次运行时服务端还在后台下载，隔几秒再看一眼，最多看几轮
   useEffect(() => {
-    // 其余图层要等各自的动画被应用后才下载，这里提前把 6 张全部拉进缓存
-    for (const item of WALLPAPERS.slice(1)) {
-      const img = new Image()
-      img.decoding = 'async'
-      img.src = item.src
+    if (!authed) return
+    let alive = true
+    let tries = 0
+    const load = () => {
+      api
+        .wallpapers()
+        .then((list) => {
+          if (!alive) return
+          const readyNow = list.filter((item) => item.weight > 0)
+          if (readyNow.length > 0) setReady(readyNow)
+          else if (++tries <= 4) setTimeout(load, 5000)
+        })
+        .catch(() => {
+          /* 背景只是装饰：接口失败就保持深色底 */
+        })
     }
-  }, [])
+    load()
+    return () => {
+      alive = false
+    }
+  }, [authed])
+
+  // 预热下一张（只解码一张，别和首屏抢带宽）
+  useEffect(() => {
+    const next = ready[1]
+    if (!next) return
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = next.url
+  }, [ready])
 
   useEffect(() => {
-    const id = setTimeout(() => setCycle((cur) => cur + 1), CYCLE_MS)
+    if (ready.length === 0) return
+    const id = setTimeout(() => setCycle((cur) => cur + 1), ready.length * SLOT_MS)
     return () => clearTimeout(id)
-  }, [cycle, perf])
+  }, [cycle, perf, ready.length])
+
+  // slot 0 解出来之后再让整层淡入：之前是深色底，不会出现半张空背景
+  useEffect(() => {
+    if (ready.length === 0) return
+    let alive = true
+    const img = new Image()
+    img.onload = () => alive && setFirstPainted(true)
+    img.src = ready[0].url
+    return () => {
+      alive = false
+    }
+  }, [ready])
 
   const hero = variant === 'hero'
 
@@ -76,23 +119,25 @@ export function BackgroundStage({ variant }: { variant: 'hero' | 'inner' }) {
       <div
         key={cycle}
         className={cn(
-          'absolute inset-0 transition-[filter] duration-500 ease-aerial',
+          'absolute inset-0 transition-[filter,opacity] duration-700 ease-aerial',
+          firstPainted ? 'opacity-100' : 'opacity-0',
           hero ? 'blur-0' : 'blur-[3px]',
           perf === 'low' && 'blur-none',
         )}
       >
-        {WALLPAPERS.map((item, index) => (
+        {ready.map((item, index) => (
           <div
-            key={`${cycle}-${item.src}`}
+            key={`${cycle}-${item.slug}`}
             className="ken-burns-layer"
             data-slot={index}
             style={{ ['--slot' as string]: index }}
             aria-hidden
           >
-            <div className="bg-layer-inner" style={{ backgroundImage: `url(${item.src})` }} />
+            <div className="bg-layer-inner" style={{ backgroundImage: `url(${item.url})` }} />
           </div>
         ))}
       </div>
+      {!firstPainted ? <div className="absolute inset-0 bg-[var(--bg-base)]" /> : null}
 
       <div className={cn('absolute inset-0 transition-colors duration-500', veil)} />
       {/* 内页左缘本来就是压暗给文字用的，首页不需要，否则左侧像贴了一层黑纱 */}

@@ -1,9 +1,9 @@
 import type { ContinueItem, VideoSummary } from '@libre-tv/shared/types'
 import { useEffect, useMemo, useState } from 'react'
-import { setFocus } from '@noriginmedia/norigin-spatial-navigation'
 import { ChevronRight, Compass, Plus } from 'lucide-react'
 import { api } from '@/api/client'
-import { useShelfScroll } from '@/lib/useShelfScroll'
+import { setPageLanding } from '@/lib/focus'
+import { ShelfRow, useShelfScroll } from '@/lib/useShelfScroll'
 import type { Fetcher, Facets } from '@/api/client'
 import { Focusable } from '@/components/Focusable'
 import { WideCard } from '@/components/WideCard'
@@ -64,8 +64,10 @@ export function HomePage({
   const [facets, setFacets] = useState<Facets>()
   const [fetchers, setFetchers] = useState<Fetcher[]>([])
   const [error, setError] = useState<string>()
-  const { ref: continueRef, scrollToChild: continueScroll } = useShelfScroll<HTMLDivElement>()
-  const { ref: recentRef, scrollToChild: recentScroll } = useShelfScroll<HTMLDivElement>()
+  const { ref: continueRef } = useShelfScroll<HTMLDivElement>()
+  const { ref: recentRef } = useShelfScroll<HTMLDivElement>()
+  const { ref: platformRef } = useShelfScroll<HTMLDivElement>()
+  const { ref: clueRef } = useShelfScroll<HTMLDivElement>()
 
   useEffect(() => {
     let alive = true
@@ -168,6 +170,8 @@ export function HomePage({
     }
   }
 
+  // 首页落脚点与数据有关：数据回来后声明「没有记忆 / 焦点落空时该去哪儿」。
+  // App 进门时已在等这个落脚点注册（focusWhenMounted），这里不必再自己设焦点。
   useEffect(() => {
     const target = cont.length
       ? 'HOME-CONTINUE-0'
@@ -176,10 +180,7 @@ export function HomePage({
         : platforms[0]
           ? `PLATFORM-${platforms[0].id}`
           : 'TOP-SETTINGS'
-    const id = setTimeout(() => {
-      void setFocus(target).catch(() => {})
-    }, 140)
-    return () => clearTimeout(id)
+    setPageLanding('home', target)
   }, [cont.length, recent.length, platforms])
 
   return (
@@ -191,7 +192,6 @@ export function HomePage({
           <Shelf
             id="continue"
             shelfRef={continueRef}
-            scrollToChild={continueScroll}
             title="继续播放"
             action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={cont.map((item) => ({
@@ -205,7 +205,6 @@ export function HomePage({
           <Shelf
             id="recent"
             shelfRef={recentRef}
-            scrollToChild={recentScroll}
             title="为你推荐"
             action={{ label: '查看全部', onClick: () => onOpenSource('local') }}
             items={recent.map((item) => ({
@@ -216,7 +215,10 @@ export function HomePage({
         </div>
 
         <section className="animate-fade-up [animation-delay:80ms]">
-          <div className="shelf-scroll flex gap-4 overflow-x-auto rounded-[30px] border border-white/10 bg-white/[0.045] p-4 backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <ShelfRow
+            shelfRef={platformRef}
+            className="gap-4 rounded-[30px] border border-white/10 bg-white/[0.045] p-4 backdrop-blur-md"
+          >
             {platforms.map((platform) => (
               <PlatformCard
                 key={platform.id}
@@ -226,11 +228,11 @@ export function HomePage({
                 }}
               />
             ))}
-          </div>
+          </ShelfRow>
         </section>
 
         <section className="animate-fade-up [animation-delay:160ms]">
-          <div className="shelf-scroll flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <ShelfRow shelfRef={clueRef} className="gap-4 pb-2">
             {fetchers.length === 0 ? (
               <ClueCreateCard onSelect={onOpenClues} />
             ) : (
@@ -238,7 +240,7 @@ export function HomePage({
                 <ClueSummary key={fetcher.id} fetcher={fetcher} onSelect={onOpenClues} />
               ))
             )}
-          </div>
+          </ShelfRow>
         </section>
       </div>
     </div>
@@ -259,13 +261,11 @@ function Shelf({
   items,
   action,
   shelfRef,
-  scrollToChild,
 }: {
   id: string
   title: string
   items: ShelfEntry[]
   shelfRef: React.RefObject<HTMLDivElement | null>
-  scrollToChild: (index: number) => void
   action?: { label: string; onClick: () => void }
 }) {
   if (items.length === 0) return null
@@ -282,10 +282,7 @@ function Shelf({
           </Focusable>
         ) : null}
       </div>
-      <div
-        ref={shelfRef}
-        className="shelf-scroll flex gap-5 overflow-x-auto pb-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
+      <ShelfRow shelfRef={shelfRef} className="gap-5 pb-4 pt-2">
         {items.map((entry, index) => (
           <WideCard
             key={entry.item?.key ?? entry.summary?.id}
@@ -313,10 +310,9 @@ function Shelf({
             durationMs={entry.durationMs}
             focusKey={`HOME-${id.toUpperCase()}-${index}`}
             onSelect={() => entry.onSelect(`HOME-${id.toUpperCase()}-${index}`)}
-            onReveal={() => scrollToChild(index)}
           />
         ))}
-      </div>
+      </ShelfRow>
     </section>
   )
 }

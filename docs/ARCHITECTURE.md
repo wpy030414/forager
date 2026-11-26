@@ -16,12 +16,14 @@
             ├─ /api/fetchers/*       采集器（线索并集 + 触发时机）
             ├─ /api/clues/*          线索（发现规则）与在线浏览
             ├─ /api/settings/*       凭据与网络参数（加密存储、热应用）
+            ├─ /api/wallpapers/*     首页背景图索引与文件（首次运行时拉进本地库）
             └─ /api/auth/*           扫码登录
                     │
         ┌───────────┴────────────┐
         │ 后台任务（同进程）       │
         │  Downloader：单队列      │
         │  FetcherScheduler：巡检  │
+        │  背景图补拉（一次性）     │
         └───────────┬────────────┘
                     │ curl 子进程（TLS 指纹可过 CF）
           ┌─────────┴──────────┐
@@ -46,6 +48,7 @@
 | `clues/scheduler.py` | 采集器：触发判定、互斥运行、逐线索翻页、增量早停、并集去重、派生画师线索、补投 |
 | `clues/ledger.py` | 作品台账：全局按 `(source, video_id)` 去重，记录入库状态与失败次数 |
 | `source_config.py` + `secrets.py` | 配置读写、掩码、Fernet 加密、保存后热应用（环境默认值打底） |
+| `wallpapers.py` | 首页背景图清单与本地库落盘：首次运行后台经统一出口补拉，接口只返回就绪清单 |
 | `api/*` | 路由与统一错误出口（一律 `{"error": ...}`） |
 | `clash/` + `docker/mihomo-entrypoint.sh` | mihomo 配置模板（订阅版 / 直连兜底）与启动渲染 |
 
@@ -64,6 +67,10 @@
   校验长度 → 原子重命名 → 海报落在媒体旁 → 写 `.info.json` / `.nfo` → 入 `library`（投影后的元信息）。
 - **观看**：库卡片 → `/api/library/play`（本地优先）→ `<video>` 走 `/api/library/media/*`（支持 Range）。
 - **配置**：设置页写入 `settings` 表（密文）→ 立即改内存 client 参数；启动时库内配置覆盖环境变量。
+- **首页背景**：启动后在后台按清单经统一出口把缺失的图片拉进 `<data>/media/wallpapers/` →
+  前端取 `/api/wallpapers/index` 只排程已就绪的那几张；主体内容不等图片，缺图只显示深色底。
+- **前端焦点**：所有可聚焦元素经 `Focusable` 上报给 Focus Manager（`apps/web/src/lib/focus.ts`），
+  由它统一处理焦点记忆与恢复、货架跟随滚动、页面落脚点、Tab 与方向键、鼠标悬停移焦（ADR-10）。
 
 ## 重要技术边界
 

@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { destroy, init, setFocus } from '@noriginmedia/norigin-spatial-navigation'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api, UNAUTHORIZED_EVENT } from '@/api/client'
 import { BackgroundStage } from '@/components/BackgroundStage'
-import { FocusActiveContext } from '@/components/Focusable'
 import { Player } from '@/components/Player'
+import { setAuthed as setSessionAuthed } from '@/lib/session'
+import {
+  enterPage,
+  focus,
+  FocusActiveContext,
+  forgetPage,
+  observeFocus,
+  pageOfFocus,
+  reclaimFocus,
+  rememberPage,
+  resetFocusMemory,
+  startFocusManager,
+} from '@/lib/focus'
 import { TopBar } from '@/components/TopBar'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -34,6 +45,16 @@ interface StageEntry {
   phase: 'enter' | 'exit'
 }
 
+const NAV_KEYS = new Set([
+  'Enter',
+  ' ',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Escape',
+])
+
 function parseHash(): Page {
   const h = window.location.hash.replace(/^#\/?/, '')
   if (h === 'library') return { name: 'source', id: 'local' }
@@ -58,14 +79,6 @@ function pageKey(p: Page): string {
   return p.name === 'source' ? `source/${p.id}` : p.name
 }
 
-// 必须在任何 useFocusable 注册之前完成初始化
-init({
-  debug: false,
-  visualDebug: false,
-  shouldFocusDOMNode: true,
-  shouldUseNativeEvents: false,
-})
-
 export function App() {
   const [page, setPage] = useState<Page>(parseHash)
   const [stage, setStage] = useState<StageEntry[]>([
@@ -83,7 +96,11 @@ export function App() {
     let alive = true
     api
       .sessionStatus()
-      .then((state) => alive && setAuthed(state.authenticated))
+      .then((state) => {
+        if (!alive) return
+        setAuthed(state.authenticated)
+        setSessionAuthed(state.authenticated)
+      })
       .catch(() => alive && setAuthed(false))
     return () => {
       alive = false
@@ -97,18 +114,42 @@ export function App() {
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, drop)
   }, [])
 
-  useEffect(() => {
-    init({
-      debug: false,
-      visualDebug: false,
-      shouldFocusDOMNode: true,
-      shouldUseNativeEvents: false,
-    })
+  // 会话重新建立时清掉上一次的焦点记忆（key 都对不上了，接上去只会落在别处）
+  useLayoutEffect(() => {
+    if (authed) resetFocusMemory()
+  }, [authed])
+
+  // 子组件的 useFocusable 注册比父组件的 effect 早，所以初始化要放在子组件出现之前：
+  // 挂在登录成功的那一刻，而不是整棵树挂载之后。
+  useLayoutEffect(() => {
+    const stop = startFocusManager()
     setReady(true)
     return () => {
       setReady(false)
-      destroy()
+      stop()
     }
+  }, [authed])
+
+  // 页面记忆：焦点落到某页的卡上就记一下，前进/后退回来直接还原
+  useEffect(() => {
+    const current = pageKey(page)
+    observeFocus((key) => {
+      rememberPage(current, key)
+      const owner = pageOfFocus(key)
+      if (owner) rememberPage(owner, key)
+    })
+    return () => observeFocus(null)
+  }, [page])
+
+  // 浏览器前进 / 后退与转场把焦点留在 body 上时，方向键一按就全丢了：
+  // 主键 / 方向键先让 Focus Manager 把焦点收回来
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Tab' || !NAV_KEYS.has(event.key)) return
+      if (document.activeElement === document.body) reclaimFocus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   // 页面变化 → 旧层退场、新层进场；最多保留「退场 + 入场」两层，
@@ -144,21 +185,20 @@ export function App() {
     setPage(next)
   }, [])
 
-  // 二级页面默认把焦点放在左上角返回键；首页由 HomePage 自己决定第一张卡。
-  // 只等一帧（norigin 的 setFocus 内部会等布局），不用再叠 setTimeout。
+  // 页面切换：焦点交给 Focus Manager（记忆 → 落脚点 → 页内第一张 → 返回键），
+  // 新页的落脚点通常要等数据回来，enterPage 自己会等；切走后旧的那次等待作废。
   useEffect(() => {
-    if (!ready || page.name === 'home') return
-    const raf = requestAnimationFrame(() => {
-      try {
-        void setFocus('TOP-BACK').catch(() => {})
-      } catch {
-        /* key 未注册：保持现状 */
-      }
-    })
-    return () => cancelAnimationFrame(raf)
+    if (!ready) return
+    let cancelled = false
+    void enterPage(pageKey(page), () => cancelled)
+    return () => {
+      cancelled = true
+    }
   }, [page, ready])
 
   const retire = useCallback((key: string) => {
+    // 退场页不留在舞台里，它那份焦点记忆已由转场前的 rememberPage 记下
+    forgetPage(key)
     setStage((cur) => cur.filter((entry) => !(entry.phase === 'exit' && entry.key === key)))
   }, [])
 
@@ -166,15 +206,8 @@ export function App() {
   const stopPlay = useCallback(() => {
     const from = playing?.focusKey
     setPlaying(null)
-    if (from) {
-      requestAnimationFrame(() => {
-        try {
-          void setFocus(from).catch(() => {})
-        } catch {
-          /* 卡片已不在：交给 norigin 自己回焦 */
-        }
-      })
-    }
+    // 卡片若已不在（列表刷新过），Focus Manager 会退到同位置 / 页面落脚点
+    if (from) requestAnimationFrame(() => void focus(from))
   }, [playing])
   const goHome = useCallback(() => navigate({ name: 'home' }), [navigate])
   const openSource = useCallback((id: string) => navigate({ name: 'source', id }), [navigate])
@@ -209,7 +242,12 @@ export function App() {
     return (
       <div className="relative min-h-screen">
         <BackgroundStage variant="hero" />
-        <LoginPage onSuccess={() => setAuthed(true)} />
+        <LoginPage
+          onSuccess={() => {
+            setAuthed(true)
+            setSessionAuthed(true)
+          }}
+        />
       </div>
     )
   }
@@ -220,13 +258,14 @@ export function App() {
 
       {!playing ? (
         <TopBar
-          showBack={current.name !== 'home'}
+          showBack={current.name !== 'home' && current.name !== 'settings'}
           settingsActive={current.name === 'settings'}
           onBack={goHome}
           onSettings={() => navigate({ name: 'settings' })}
           onLogout={() => {
             void api.logout().catch(() => {})
             setAuthed(false)
+            setSessionAuthed(false)
           }}
         />
       ) : null}
